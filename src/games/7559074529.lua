@@ -13,6 +13,10 @@ return function(section, data)
     local requestShowAd = remotes:WaitForChild("RequestShowAdEvent")
     local adAnalytics = remotes:WaitForChild("AdAnalytics")
 
+    -- PLACEHOLDER: swap in the real finish coords here once known.
+    -- Leave as nil to fall back to the "Finish Position" textbox below.
+    local FINISH_POS = nil -- e.g. Vector3.new(120, 5, -340)
+
     env.AutoComplete = false
     env.AutoRevive = false
 
@@ -32,8 +36,12 @@ return function(section, data)
     end
 
     local function teleportToFinish()
-        local target = parsePos(finishPos)
-        if not target then return end
+        -- hardcoded coords win if set, otherwise use whatever is in the textbox
+        local target = FINISH_POS or parsePos(finishPos)
+        if not target then
+            warn("[BrainrotPolice] Auto Complete: no finish position set")
+            return
+        end
 
         local char = plr.Character
         local root = char and char:FindFirstChild("HumanoidRootPart")
