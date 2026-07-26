@@ -13,9 +13,8 @@ return function(section, data)
     local requestShowAd = remotes:WaitForChild("RequestShowAdEvent")
     local adAnalytics = remotes:WaitForChild("AdAnalytics")
 
-    -- PLACEHOLDER: swap in the real finish coords here once known.
-    -- Leave as nil to fall back to the "Finish Position" textbox below.
-    local FINISH_POS = nil -- e.g. Vector3.new(120, 5, -340)
+    -- where Auto Complete drops you when a round starts
+    local FINISH_POS = Vector3.new(-12200, -790, -2984)
 
     env.AutoComplete = false
     env.AutoRevive = false
@@ -25,42 +24,21 @@ return function(section, data)
     setdata.autocomplete = setdata.autocomplete or false
     setdata.autorevive = setdata.autorevive or false
     setdata.kill = setdata.kill or false
-    setdata.finishpos = setdata.finishpos or "0, 0, 0"
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
-
-    local finishPos = setdata.finishpos
 
     local function getRoot(character)
         if not character then return nil end
         return character:FindFirstChild("HumanoidRootPart")
     end
 
-    local function parsePos(str)
-        local x, y, z = tostring(str):match("(-?%d+%.?%d*)%s*,%s*(-?%d+%.?%d*)%s*,%s*(-?%d+%.?%d*)")
-        if not x then return nil end
-        return Vector3.new(tonumber(x), tonumber(y), tonumber(z))
-    end
-
     local function teleportToFinish()
-        -- hardcoded coords win if set, otherwise use whatever is in the textbox
-        local target = FINISH_POS or parsePos(finishPos)
-        if not target then
-            warn("[BrainrotPolice] Auto Complete: no finish position set")
-            return
-        end
-
         local root = getRoot(plr.Character)
         if not root then return end
 
-        root.CFrame = CFrame.new(target)
+        root.CFrame = CFrame.new(FINISH_POS)
         root.AssemblyLinearVelocity = Vector3.zero
     end
-
-    elements:Textbox("Finish Position (X, Y, Z)", section, finishPos, function(v)
-        finishPos = v
-        env.setconfig("finishpos", v)
-    end)
 
     -- listens for the server telling the client a gamemode started
     local acConn
