@@ -10,6 +10,7 @@ return function(section, data)
 
     local remotes = replicatedstorage:WaitForChild("Remotes")
     local gameStateUpdate = remotes:WaitForChild("GameStateUpdate")
+    local requestShowAd = remotes:WaitForChild("RequestShowAdEvent")
     local adAnalytics = remotes:WaitForChild("AdAnalytics")
 
     -- where Auto Complete drops you when a round starts
@@ -57,7 +58,8 @@ return function(section, data)
             if state ~= "StartGamemode" then return end
             if gamemode ~= "RedLightGreenLight" then return end
 
-            task.wait(1)
+            task.wait(10)
+            if not env.AutoComplete then return end
             teleportToFinish()
         end)
 
@@ -67,6 +69,12 @@ return function(section, data)
     end)
 
     local function revive()
+        pcall(function()
+            requestShowAd:InvokeServer("Revive")
+        end)
+
+        task.wait(1)
+
         pcall(function()
             adAnalytics:FireServer("Revive", true)
         end)
