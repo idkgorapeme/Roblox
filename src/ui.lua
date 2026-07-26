@@ -10,6 +10,10 @@ local ui = import("rbxassetid://75281832304062")
 
 ui.Parent = hui and hui() or coregui
 
+local bp = getgenv().BrainrotPolice
+local track = bp and bp.track or function(conn) return conn end
+if bp then bp.gui = ui end
+
 local ToggleButton = ui.togglebtn
 local MainFrame = ui.Frame
 
@@ -49,23 +53,23 @@ local Sections = {
 local CurSection
 
 for _, sect in pairs(Sections) do
-    sect.TabBtn.MouseEnter:Connect(function()
+    track(sect.TabBtn.MouseEnter:Connect(function()
         for _, stroke in pairs(sect.TabBtn:GetChildren()) do
             if stroke.Name == "InnerShadow" then
                 stroke.Transparency = 0.95
             end
         end
-    end)
+    end))
 
-    sect.TabBtn.MouseLeave:Connect(function()
+    track(sect.TabBtn.MouseLeave:Connect(function()
         for _, stroke in pairs(sect.TabBtn:GetChildren()) do
             if stroke.Name == "InnerShadow" then
                 stroke.Transparency = 1
             end
         end
-    end)
+    end))
 
-    sect.TabBtn.MouseButton1Click:Connect(function()
+    track(sect.TabBtn.MouseButton1Click:Connect(function()
         if CurSection == sect then return end
 
         if CurSection then
@@ -78,53 +82,68 @@ for _, sect in pairs(Sections) do
         sect.Container.Visible = true
 
         CurSection = sect
-    end)
+    end))
 end
 
-HideButton.MouseButton1Click:Connect(function()
+-- generic dragger, returns a function telling you whether the last press was a drag
+local function makeDraggable(frame)
+    local dragging = false
+    local dragInput, mousePos, framePos
+    local moved = 0
+
+    track(frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            moved = 0
+            mousePos = input.Position
+            framePos = frame.Position
+
+            track(input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end))
+        end
+    end))
+
+    track(frame.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end))
+
+    track(userinputservice.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - mousePos
+            moved = math.max(moved, math.abs(delta.X) + math.abs(delta.Y))
+            frame.Position = UDim2.new(
+                framePos.X.Scale,
+                framePos.X.Offset + delta.X,
+                framePos.Y.Scale,
+                framePos.Y.Offset + delta.Y
+            )
+        end
+    end))
+
+    return function()
+        return moved > 5
+    end
+end
+
+makeDraggable(MainFrame)
+local toggleWasDragged = makeDraggable(ToggleButton)
+
+track(HideButton.MouseButton1Click:Connect(function()
     MainFrame.Visible = false
     ToggleButton.Visible = true
-end)
+end))
 
-ToggleButton.MouseButton1Click:Connect(function()
+track(ToggleButton.MouseButton1Click:Connect(function()
+    -- ignore the click that ends a drag so moving the icon doesn't reopen the menu
+    if toggleWasDragged() then return end
     MainFrame.Visible = true
     ToggleButton.Visible = false
-end)
-
-local dragging = false
-local dragInput, mousePos, framePos
-
-MainFrame.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
-        mousePos = input.Position
-        framePos = MainFrame.Position
-
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-            end
-        end)
-    end
-end)
-
-MainFrame.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-        dragInput = input
-    end
-end)
-
-userinputservice.InputChanged:Connect(function(input)
-    if input == dragInput and dragging then
-        local delta = input.Position - mousePos
-        MainFrame.Position = UDim2.new(
-            framePos.X.Scale,
-            framePos.X.Offset + delta.X,
-            framePos.Y.Scale,
-            framePos.Y.Offset + delta.Y
-        )
-    end
-end)
+end))
 
 Sections.Home.Container.bugsLabel.Text = Sections.Home.Container.bugsLabel.Text:gsub("redacted", "discord.gg/vaehz")
 Sections.Home.Container.discan.Text = Sections.Home.Container.discan.Text:gsub("redacted", "discord.gg/vaehz")
@@ -197,4 +216,13 @@ elements:Toggle("Auto Rejoin (when kicked)", Sections.Settings.Container, dec1.s
     dec.settings.auto_rejoin_on_kick = v
     writefile("BrainrotPolice/Config.json", httpservice:JSONEncode(dec))
     getgenv().autorjjjj = v
+end)
+
+elements:Button("Unload Script", Sections.Settings.Container, function()
+    if bp and bp.unload then
+        bp.unload()
+    else
+        -- fallback if init.lua is an older build without the registry
+        ui:Destroy()
+    end
 end)
