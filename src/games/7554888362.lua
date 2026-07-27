@@ -14,8 +14,8 @@ return function(section, data)
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
-    -- 3 studs in front of the local player (-Z is forward) and 4 studs up
-    local frontOffset = CFrame.new(0, 4, -3)
+    -- 1 stud in front of the local player (-Z is forward) and 2 studs up
+    local frontOffset = CFrame.new(0, 2, -1)
 
     local function getRoot(character)
         if not character then return nil end
