@@ -124,8 +124,8 @@ return function(section, data)
         revive()
     end)
 
-    -- 3 studs in front of the local player (-Z is forward)
-    local frontOffset = CFrame.new(0, 0, -3)
+    -- 3 studs in front of the local player (-Z is forward) and 4 studs up
+    local frontOffset = CFrame.new(0, 4, -3)
 
     -- highlights only the glass panels you can actually stand on (CanCollide = true)
     local glassHighlights = {}
