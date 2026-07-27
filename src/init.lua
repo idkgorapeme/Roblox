@@ -65,7 +65,7 @@ env.BrainrotPolice.globals = {
     "AutoOg", "AutoRebirth", "AutoSleepy", "AutoSpeed", "Autosell", "ChosenZone",
     "Collect", "CrateRarity", "Fakee", "FarmBrainrots", "FarmEvolve", "FarmRots",
     "FarmWings", "FarmWins", "Farming", "Farminga", "Kill", "MaxPrice", "Rebirth",
-    "Selling", "Strength", "Upgrade", "WinFarm", "WinStage", "collect", "equip",
+    "Selling", "ShowGlass", "Strength", "Upgrade", "WinFarm", "WinStage", "collect", "equip",
     "farming", "stealfromall"
 }
 

@@ -19,11 +19,13 @@ return function(section, data)
     env.AutoComplete = false
     env.AutoRevive = false
     env.Kill = false
+    env.ShowGlass = false
 
     local setdata = data[tostring(game.PlaceId)] or {}
     setdata.autocomplete = setdata.autocomplete or false
     setdata.autorevive = setdata.autorevive or false
     setdata.kill = setdata.kill or false
+    setdata.showglass = setdata.showglass or false
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
@@ -124,6 +126,73 @@ return function(section, data)
 
     -- 3 studs in front of the local player (-Z is forward)
     local frontOffset = CFrame.new(0, 0, -3)
+
+    -- highlights only the glass panels you can actually stand on (CanCollide = true)
+    local glassHighlights = {}
+
+    local function clearGlassHighlights()
+        for part, hl in pairs(glassHighlights) do
+            pcall(function() hl:Destroy() end)
+            glassHighlights[part] = nil
+        end
+    end
+
+    local function refreshGlass()
+        local glasses = workspace:FindFirstChild("Map")
+        glasses = glasses and glasses:FindFirstChild("Glass")
+        glasses = glasses and glasses:FindFirstChild("Glasses")
+        if not glasses then
+            clearGlassHighlights()
+            return
+        end
+
+        local seen = {}
+
+        for _, part in pairs(glasses:GetDescendants()) do
+            if part:IsA("BasePart") and part.CanCollide then
+                seen[part] = true
+
+                if not glassHighlights[part] then
+                    local hl = Instance.new("Highlight")
+                    hl.Name = "BPGlass"
+                    hl.FillColor = Color3.fromRGB(0, 255, 0)
+                    hl.FillTransparency = 0.5
+                    hl.OutlineColor = Color3.fromRGB(0, 255, 0)
+                    hl.OutlineTransparency = 0
+                    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    hl.Adornee = part
+                    hl.Parent = part
+
+                    glassHighlights[part] = hl
+                end
+            end
+        end
+
+        -- drop highlights for panels that broke or turned non collidable
+        for part, hl in pairs(glassHighlights) do
+            if not seen[part] or not part.Parent then
+                pcall(function() hl:Destroy() end)
+                glassHighlights[part] = nil
+            end
+        end
+    end
+
+    elements:Toggle("Show Glass", section, setdata.showglass, function(v)
+        env.ShowGlass = v
+        env.setconfig("showglass", v)
+
+        if not v then
+            clearGlassHighlights()
+            return
+        end
+
+        while env.ShowGlass do
+            pcall(refreshGlass)
+            task.wait(0.5)
+        end
+
+        clearGlassHighlights()
+    end)
 
     elements:Toggle("Kill", section, setdata.kill, function(v)
         env.Kill = v
