@@ -66,7 +66,9 @@ env.BrainrotPolice.globals = {
     "Collect", "CrateRarity", "Fakee", "FarmBrainrots", "FarmEvolve", "FarmRots",
     "FarmWings", "FarmWins", "Farming", "Farminga", "Kill", "MaxPrice", "Rebirth",
     "Selling", "ShowGlass", "Strength", "Upgrade", "WinFarm", "WinStage", "collect", "equip",
-    "farming", "stealfromall"
+    "farming", "stealfromall",
+    "AutoWin", "KeyFarm", "KeyHighlight", "World2Help", "World2Destroy",
+    "MacroPlaying", "MacroRecording"
 }
 
 function env.BrainrotPolice.unload()
