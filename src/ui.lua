@@ -14,7 +14,8 @@ local bp = getgenv().BrainrotPolice
 local track = bp and bp.track or function(conn) return conn end
 if bp then bp.gui = ui end
 
-local ToggleButton = ui.togglebtn
+-- FindFirstChild so a renamed/missing icon in the asset doesn't error out here
+local ToggleButton = ui:FindFirstChild("togglebtn")
 local MainFrame = ui.Frame
 
 local Topbar = MainFrame.TopBar
@@ -130,12 +131,70 @@ local function makeDraggable(frame)
     end
 end
 
+-- the toggle icon lives in the gui asset, but it can come through off screen,
+-- zero sized or stacked under another gui. build a fallback if it is missing and
+-- force it somewhere visible whenever we show it.
+if not ToggleButton then
+    local fallback = Instance.new("TextButton")
+    fallback.Name = "togglebtn"
+    fallback.Size = UDim2.new(0, 90, 0, 32)
+    fallback.Position = UDim2.new(0, 20, 0, 20)
+    fallback.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    fallback.BorderSizePixel = 0
+    fallback.Text = "Brainrot"
+    fallback.TextColor3 = Color3.fromRGB(255, 255, 255)
+    fallback.TextSize = 14
+    fallback.Font = Enum.Font.GothamBold
+    fallback.AutoButtonColor = true
+    fallback.Visible = false
+    fallback.Parent = ui
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = fallback
+
+    ToggleButton = fallback
+end
+
+local function showToggleIcon()
+    -- make sure the gui itself is on top of anything else the executor has open
+    pcall(function()
+        if ui:IsA("ScreenGui") then
+            ui.Enabled = true
+            ui.DisplayOrder = 9999
+            ui.ResetOnSpawn = false
+            ui.IgnoreGuiInset = true
+        end
+    end)
+
+    ToggleButton.Visible = true
+    ToggleButton.Active = true
+    ToggleButton.ZIndex = 100
+
+    -- a zero sized button is invisible even when Visible is true
+    if ToggleButton.AbsoluteSize.X < 5 or ToggleButton.AbsoluteSize.Y < 5 then
+        ToggleButton.Size = UDim2.new(0, 90, 0, 32)
+    end
+
+    -- if it sits outside the viewport, pull it back to the top left
+    local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize
+    if viewport then
+        local pos = ToggleButton.AbsolutePosition
+        local size = ToggleButton.AbsoluteSize
+        if pos.X + size.X < 0 or pos.Y + size.Y < 0
+            or pos.X > viewport.X - 5 or pos.Y > viewport.Y - 5 then
+            ToggleButton.AnchorPoint = Vector2.new(0, 0)
+            ToggleButton.Position = UDim2.new(0, 20, 0, 20)
+        end
+    end
+end
+
 makeDraggable(MainFrame)
 local toggleWasDragged = makeDraggable(ToggleButton)
 
 track(HideButton.MouseButton1Click:Connect(function()
     MainFrame.Visible = false
-    ToggleButton.Visible = true
+    showToggleIcon()
 end))
 
 track(ToggleButton.MouseButton1Click:Connect(function()
@@ -143,6 +202,20 @@ track(ToggleButton.MouseButton1Click:Connect(function()
     if toggleWasDragged() then return end
     MainFrame.Visible = true
     ToggleButton.Visible = false
+end))
+
+-- keybind fallback so the menu is never unreachable if the icon still hides
+track(userinputservice.InputBegan:Connect(function(input, processed)
+    if processed then return end
+    if input.KeyCode ~= Enum.KeyCode.RightControl then return end
+
+    if MainFrame.Visible then
+        MainFrame.Visible = false
+        showToggleIcon()
+    else
+        MainFrame.Visible = true
+        ToggleButton.Visible = false
+    end
 end))
 
 Sections.Home.Container.bugsLabel.Text = Sections.Home.Container.bugsLabel.Text:gsub("redacted", "discord.gg/vaehz")
