@@ -150,6 +150,7 @@ Sections.Home.Container.discan.Text = Sections.Home.Container.discan.Text:gsub("
 Sections.Home.Container.ythead.Text = Sections.Home.Container.ythead.Text:gsub("redacted", "YouTube")
 Sections.Home.Container.execLabel.Text = "Executor: " .. getexec()
 Sections.Home.Container.versionLabel.Text = "Version: 0.33 BETA"
+Sections.Home.Container.execLabel.Text = Sections.Home.Container.execLabel.Text .. "  |  PlaceId: " .. tostring(game.PlaceId)
 
 
 local ok, gamePath = pcall(function()
@@ -216,6 +217,264 @@ elements:Toggle("Auto Rejoin (when kicked)", Sections.Settings.Container, dec1.s
     dec.settings.auto_rejoin_on_kick = v
     writefile("BrainrotPolice/Config.json", httpservice:JSONEncode(dec))
     getgenv().autorjjjj = v
+end)
+
+----------------------------------------------------------------
+-- player movement cheats
+----------------------------------------------------------------
+
+local players = game:GetService("Players")
+local runservice = game:GetService("RunService")
+local lp = players.LocalPlayer
+
+local env = getgenv()
+
+local DEFAULT_WALKSPEED = 16
+local DEFAULT_JUMPPOWER = 50
+local DEFAULT_GRAVITY = 196.2
+
+local settings = dec1.settings
+local moveSpeed = tonumber(settings.fly_speed) or 50
+local walkSpeed = tonumber(settings.walk_speed) or DEFAULT_WALKSPEED
+local jumpPower = tonumber(settings.jump_power) or DEFAULT_JUMPPOWER
+
+local function saveSetting(key, value)
+    local ok, dec = pcall(function()
+        return httpservice:JSONDecode(readfile("BrainrotPolice/Config.json"))
+    end)
+    if not ok or type(dec) ~= "table" then return end
+    dec.settings = dec.settings or {}
+    dec.settings[key] = value
+    writefile("BrainrotPolice/Config.json", httpservice:JSONEncode(dec))
+end
+
+local function getChar()
+    return lp.Character
+end
+
+local function getHum()
+    local char = getChar()
+    return char and char:FindFirstChildOfClass("Humanoid")
+end
+
+local function getRoot()
+    local char = getChar()
+    return char and char:FindFirstChild("HumanoidRootPart")
+end
+
+-- flight -------------------------------------------------------
+
+local flyBP, flyBG, flyConn
+
+local function stopFly()
+    if flyConn then flyConn:Disconnect() flyConn = nil end
+    if flyBP then pcall(function() flyBP:Destroy() end) flyBP = nil end
+    if flyBG then pcall(function() flyBG:Destroy() end) flyBG = nil end
+
+    local hum = getHum()
+    if hum then
+        pcall(function() hum.PlatformStand = false end)
+    end
+end
+
+local function startFly()
+    local root = getRoot()
+    if not root then return end
+
+    stopFly()
+
+    flyBP = Instance.new("BodyPosition")
+    flyBP.Name = "BPFlyPos"
+    flyBP.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+    flyBP.P = 9e4
+    flyBP.D = 1000
+    flyBP.Position = root.Position
+    flyBP.Parent = root
+
+    flyBG = Instance.new("BodyGyro")
+    flyBG.Name = "BPFlyGyro"
+    flyBG.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+    flyBG.P = 9e4
+    flyBG.CFrame = root.CFrame
+    flyBG.Parent = root
+
+    flyConn = runservice.RenderStepped:Connect(function(dt)
+        if not env.BPFly then return end
+
+        local r = getRoot()
+        local cam = workspace.CurrentCamera
+        if not r or not cam or not flyBP or not flyBG then return end
+
+        -- keep the body movers attached across respawns
+        if flyBP.Parent ~= r then
+            startFly()
+            return
+        end
+
+        local dir = Vector3.zero
+        local look = cam.CFrame.LookVector
+        local right = cam.CFrame.RightVector
+
+        if userinputservice:IsKeyDown(Enum.KeyCode.W) then dir = dir + look end
+        if userinputservice:IsKeyDown(Enum.KeyCode.S) then dir = dir - look end
+        if userinputservice:IsKeyDown(Enum.KeyCode.D) then dir = dir + right end
+        if userinputservice:IsKeyDown(Enum.KeyCode.A) then dir = dir - right end
+        if userinputservice:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.new(0, 1, 0) end
+        if userinputservice:IsKeyDown(Enum.KeyCode.LeftControl) then dir = dir - Vector3.new(0, 1, 0) end
+
+        if dir.Magnitude > 0 then
+            flyBP.Position = r.Position + dir.Unit * moveSpeed * dt * 10
+        else
+            flyBP.Position = r.Position
+        end
+
+        flyBG.CFrame = cam.CFrame
+    end)
+
+    track(flyConn)
+end
+
+elements:Textbox("Fly Speed (default 50)", Sections.Settings.Container, tostring(moveSpeed), function(v)
+    local n = tonumber(v)
+    if not n or n <= 0 then return end
+    moveSpeed = n
+    saveSetting("fly_speed", n)
+end)
+
+elements:Toggle("Flight (WASD / Space / LeftCtrl)", Sections.Settings.Container, false, function(v)
+    env.BPFly = v
+
+    if v then
+        startFly()
+
+        -- rebuild the movers after a respawn
+        track(lp.CharacterAdded:Connect(function(char)
+            if not env.BPFly then return end
+            char:WaitForChild("HumanoidRootPart", 10)
+            task.wait(0.2)
+            if env.BPFly then startFly() end
+        end))
+    else
+        stopFly()
+    end
+end)
+
+-- infinite jump ------------------------------------------------
+
+elements:Toggle("Infinite Jump", Sections.Settings.Container, false, function(v)
+    env.BPInfJump = v
+end)
+
+track(userinputservice.JumpRequest:Connect(function()
+    if not env.BPInfJump then return end
+    local hum = getHum()
+    if hum then
+        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+    end
+end))
+
+-- noclip -------------------------------------------------------
+
+local noclipConn
+
+elements:Toggle("Noclip", Sections.Settings.Container, false, function(v)
+    env.BPNoclip = v
+
+    if noclipConn then
+        noclipConn:Disconnect()
+        noclipConn = nil
+    end
+
+    if v then
+        -- reapplied every frame, so it survives respawns automatically
+        noclipConn = runservice.Stepped:Connect(function()
+            if not env.BPNoclip then return end
+            local char = getChar()
+            if not char then return end
+
+            for _, part in pairs(char:GetDescendants()) do
+                if part:IsA("BasePart") and part.CanCollide then
+                    part.CanCollide = false
+                end
+            end
+        end)
+
+        track(noclipConn)
+    else
+        local char = getChar()
+        if char then
+            for _, part in pairs(char:GetDescendants()) do
+                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                    pcall(function() part.CanCollide = true end)
+                end
+            end
+        end
+    end
+end)
+
+-- walk speed / jump power --------------------------------------
+
+local function applyWalkSpeed()
+    local hum = getHum()
+    if hum then pcall(function() hum.WalkSpeed = walkSpeed end) end
+end
+
+local function applyJumpPower()
+    local hum = getHum()
+    if not hum then return end
+    pcall(function()
+        hum.UseJumpPower = true
+        hum.JumpPower = jumpPower
+    end)
+end
+
+elements:Textbox("Walk Speed (default 16)", Sections.Settings.Container, tostring(walkSpeed), function(v)
+    local n = tonumber(v)
+    if not n or n < 0 then return end
+    walkSpeed = n
+    saveSetting("walk_speed", n)
+    applyWalkSpeed()
+end)
+
+elements:Textbox("Jump Power (default 50)", Sections.Settings.Container, tostring(jumpPower), function(v)
+    local n = tonumber(v)
+    if not n or n < 0 then return end
+    jumpPower = n
+    saveSetting("jump_power", n)
+    applyJumpPower()
+end)
+
+-- keep both applied through respawns
+track(lp.CharacterAdded:Connect(function(char)
+    char:WaitForChild("Humanoid", 10)
+    task.wait(0.2)
+    if walkSpeed ~= DEFAULT_WALKSPEED then applyWalkSpeed() end
+    if jumpPower ~= DEFAULT_JUMPPOWER then applyJumpPower() end
+end))
+
+-- gravity ------------------------------------------------------
+
+elements:Textbox("Gravity (default 196.2, affects everyone)", Sections.Settings.Container, tostring(workspace.Gravity), function(v)
+    local n = tonumber(v)
+    if not n then return end
+    pcall(function() workspace.Gravity = n end)
+end)
+
+-- rejoin -------------------------------------------------------
+
+elements:Button("Rejoin Server", Sections.Settings.Container, function()
+    local teleportservice = game:GetService("TeleportService")
+
+    if #players:GetPlayers() <= 1 then
+        -- last player in the server, a plain teleport would land us right back
+        pcall(function()
+            teleportservice:Teleport(game.PlaceId, lp)
+        end)
+    else
+        pcall(function()
+            teleportservice:TeleportToPlaceInstance(game.PlaceId, game.JobId, lp)
+        end)
+    end
 end)
 
 elements:Button("Unload Script", Sections.Settings.Container, function()

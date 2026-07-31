@@ -68,7 +68,8 @@ env.BrainrotPolice.globals = {
     "Selling", "ShowGlass", "Strength", "Upgrade", "WinFarm", "WinStage", "collect", "equip",
     "farming", "stealfromall",
     "AutoWin", "KeyFarm", "KeyHighlight", "World2Help", "World2Destroy",
-    "MacroPlaying", "MacroRecording"
+    "MacroPlaying", "MacroRecording",
+    "BPFly", "BPInfJump", "BPNoclip"
 }
 
 function env.BrainrotPolice.unload()
@@ -97,6 +98,21 @@ function env.BrainrotPolice.unload()
     -- 4. undo side effects on the game itself
     pcall(function() game:GetService("RunService"):Set3dRenderingEnabled(true) end)
     pcall(function() game:GetService("GuiService"):SetGameplayPausedNotificationEnabled(true) end)
+    pcall(function() workspace.Gravity = 196.2 end)
+
+    -- strip the flight body movers off the character
+    pcall(function()
+        local char = game:GetService("Players").LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if root then
+            for _, n in ipairs({"BPFlyPos", "BPFlyGyro"}) do
+                local mover = root:FindFirstChild(n)
+                if mover then mover:Destroy() end
+            end
+        end
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum then hum.PlatformStand = false end
+    end)
 
     -- 5. don't come back after a teleport
     if queue_on_teleport then
