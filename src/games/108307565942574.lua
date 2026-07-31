@@ -6,7 +6,13 @@ return function(section, data)
 
     local players = game:GetService("Players")
     local replicatedstorage = game:GetService("ReplicatedStorage")
+    local runservice = game:GetService("RunService")
     local plr = players.LocalPlayer
+
+    local function getRoot(character)
+        if not character then return nil end
+        return character:FindFirstChild("HumanoidRootPart")
+    end
 
     env.AutoPrestige = false
     env.AutoClickAttack = false
@@ -16,7 +22,6 @@ return function(section, data)
     setdata.autoclick = setdata.autoclick or false
     setdata.zone = setdata.zone or "Forest"
     setdata.attackid = setdata.attackid or 3
-    setdata.clickdelay = setdata.clickdelay or 0.1
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
@@ -26,7 +31,6 @@ return function(section, data)
 
     local zone = tostring(setdata.zone)
     local attackId = tonumber(setdata.attackid) or 3
-    local clickDelay = tonumber(setdata.clickdelay) or 0.1
 
     ----------------------------------------------------------------
     -- auto click attack
@@ -66,39 +70,73 @@ return function(section, data)
         env.setconfig("attackid", n)
     end)
 
-    elements:Textbox("Click Delay (default 0.1)", section, tostring(clickDelay), function(v)
-        local n = tonumber(v)
-        if not n or n < 0 then return end
-        clickDelay = n
-        env.setconfig("clickdelay", n)
-    end)
+    -- true when the enemy is still alive and rendered
+    local function isAlive(enemy)
+        if not enemy or not enemy.Parent then return false end
+
+        local hum = enemy:FindFirstChildOfClass("Humanoid")
+        if hum and hum.Health <= 0 then return false end
+
+        local hp = enemy:GetAttribute("Health") or enemy:GetAttribute("HP")
+        if hp and hp <= 0 then return false end
+
+        return true
+    end
+
+    -- nearest living enemy to the character, so we commit to one target
+    local function nearestEnemy()
+        local folder = workspace:FindFirstChild("EnemyRender")
+        if not folder then return nil end
+
+        local root = getRoot(plr.Character)
+        local origin = root and root.Position
+
+        local best, bestPos, bestDist = nil, nil, math.huge
+
+        for _, enemy in pairs(folder:GetChildren()) do
+            if isAlive(enemy) then
+                local pos = enemyPosition(enemy)
+                if pos then
+                    local dist = origin and (pos - origin).Magnitude or 0
+                    if dist < bestDist then
+                        best, bestPos, bestDist = enemy, pos, dist
+                    end
+                end
+            end
+        end
+
+        return best, bestPos
+    end
 
     elements:Toggle("Auto Click Attack", section, setdata.autoclick, function(v)
         env.AutoClickAttack = v
         env.setconfig("autoclick", v)
         if not v then return end
 
-        while env.AutoClickAttack do
-            pcall(function()
-                local folder = workspace:FindFirstChild("EnemyRender")
-                if not folder then return end
+        task.spawn(function()
+            local target, targetPos
 
-                for _, enemy in pairs(folder:GetChildren()) do
-                    if not env.AutoClickAttack then return end
-
-                    local pos = enemyPosition(enemy)
-                    if pos then
-                        pcall(function()
-                            reportClickAttack:FireServer(zone, attackId, pos)
-                        end)
-
-                        task.wait(clickDelay)
-                    end
+            while env.AutoClickAttack do
+                -- keep hitting the same enemy until it dies or despawns
+                if not isAlive(target) then
+                    target, targetPos = nearestEnemy()
+                else
+                    targetPos = enemyPosition(target) or targetPos
                 end
-            end)
 
-            task.wait(0.1)
-        end
+                if target and targetPos then
+                    -- one attack per frame, as fast as the game will accept
+                    pcall(function()
+                        reportClickAttack:FireServer(zone, attackId, targetPos)
+                    end)
+
+                    runservice.Heartbeat:Wait()
+                else
+                    -- nothing to hit, idle cheaply until an enemy renders
+                    task.wait(0.2)
+                end
+            end
+        end)
     end)
 
     elements:Toggle("Auto Prestige", section, setdata.autoprestige, function(v)
