@@ -69,7 +69,7 @@ env.BrainrotPolice.globals = {
     "farming", "stealfromall",
     "AutoWin", "KeyFarm", "KeyHighlight", "World2Help", "World2Destroy",
     "MacroPlaying", "MacroRecording",
-    "BPFly", "BPInfJump", "BPNoclip"
+    "BPFly", "BPInfJump", "BPNoclip", "AutoPrestige"
 }
 
 function env.BrainrotPolice.unload()
