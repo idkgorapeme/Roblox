@@ -9,11 +9,6 @@ return function(section, data)
     local runservice = game:GetService("RunService")
     local plr = players.LocalPlayer
 
-    local function getRoot(character)
-        if not character then return nil end
-        return character:FindFirstChild("HumanoidRootPart")
-    end
-
     env.AutoPrestige = false
     env.AutoClickAttack = false
 
@@ -21,7 +16,6 @@ return function(section, data)
     setdata.autoprestige = setdata.autoprestige or false
     setdata.autoclick = setdata.autoclick or false
     setdata.zone = setdata.zone or "Forest"
-    setdata.attackid = setdata.attackid or 3
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
@@ -30,7 +24,6 @@ return function(section, data)
     local reportClickAttack = remotes:WaitForChild("ReportClickAttack")
 
     local zone = tostring(setdata.zone)
-    local attackId = tonumber(setdata.attackid) or 3
 
     ----------------------------------------------------------------
     -- auto click attack
@@ -63,13 +56,6 @@ return function(section, data)
         env.setconfig("zone", v)
     end)
 
-    elements:Textbox("Attack ID (default 3)", section, tostring(attackId), function(v)
-        local n = tonumber(v)
-        if not n then return end
-        attackId = n
-        env.setconfig("attackid", n)
-    end)
-
     -- true when the enemy is still alive and rendered
     local function isAlive(enemy)
         if not enemy or not enemy.Parent then return false end
@@ -83,29 +69,43 @@ return function(section, data)
         return true
     end
 
-    -- nearest living enemy to the character, so we commit to one target
-    local function nearestEnemy()
+    -- the second remote argument is the enemy id, so we sweep 1-10 to cover
+    -- every enemy slot the zone can have.
+    local ENEMY_IDS = 10
+
+    -- tries to find the enemy that belongs to a given id, so each id gets its
+    -- own position instead of everything being sent to one spot
+    local function positionForId(id)
         local folder = workspace:FindFirstChild("EnemyRender")
         if not folder then return nil end
 
-        local root = getRoot(plr.Character)
-        local origin = root and root.Position
+        local kids = folder:GetChildren()
 
-        local best, bestPos, bestDist = nil, nil, math.huge
+        -- 1. an enemy literally named after the id
+        local byName = folder:FindFirstChild(tostring(id))
+        if byName and isAlive(byName) then
+            return enemyPosition(byName)
+        end
 
-        for _, enemy in pairs(folder:GetChildren()) do
+        -- 2. an id carrying attribute
+        for _, enemy in pairs(kids) do
             if isAlive(enemy) then
-                local pos = enemyPosition(enemy)
-                if pos then
-                    local dist = origin and (pos - origin).Magnitude or 0
-                    if dist < bestDist then
-                        best, bestPos, bestDist = enemy, pos, dist
-                    end
+                local eid = enemy:GetAttribute("Id")
+                    or enemy:GetAttribute("EnemyId")
+                    or enemy:GetAttribute("Index")
+                if eid and tonumber(eid) == id then
+                    return enemyPosition(enemy)
                 end
             end
         end
 
-        return best, bestPos
+        -- 3. fall back to the nth rendered enemy
+        local nth = kids[id]
+        if nth and isAlive(nth) then
+            return enemyPosition(nth)
+        end
+
+        return nil
     end
 
     elements:Toggle("Auto Click Attack", section, setdata.autoclick, function(v)
@@ -114,25 +114,26 @@ return function(section, data)
         if not v then return end
 
         task.spawn(function()
-            local target, targetPos
-
             while env.AutoClickAttack do
-                -- keep hitting the same enemy until it dies or despawns
-                if not isAlive(target) then
-                    target, targetPos = nearestEnemy()
-                else
-                    targetPos = enemyPosition(target) or targetPos
-                end
+                local folder = workspace:FindFirstChild("EnemyRender")
 
-                if target and targetPos then
-                    -- one attack per frame, as fast as the game will accept
-                    pcall(function()
-                        reportClickAttack:FireServer(zone, attackId, targetPos)
-                    end)
+                if folder then
+                    -- fire every enemy id in the same frame so all of them get hit
+                    for id = 1, ENEMY_IDS do
+                        task.spawn(function()
+                            if not env.AutoClickAttack then return end
+
+                            local pos = positionForId(id)
+                            if not pos then return end
+
+                            pcall(function()
+                                reportClickAttack:FireServer(zone, id, pos)
+                            end)
+                        end)
+                    end
 
                     runservice.Heartbeat:Wait()
                 else
-                    -- nothing to hit, idle cheaply until an enemy renders
                     task.wait(0.2)
                 end
             end
