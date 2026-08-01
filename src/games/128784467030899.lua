@@ -23,14 +23,6 @@ return function(section, data)
         return folder and folder:FindFirstChild(name) or nil
     end
 
-    -- the merge remote lives under Packages.Remotes.Networking
-    local function netRemote(name)
-        local pkgs = replicatedstorage:FindFirstChild("Packages")
-        local remotes = pkgs and pkgs:FindFirstChild("Remotes")
-        local networking = remotes and remotes:FindFirstChild("Networking")
-        return networking and networking:FindFirstChild(name) or nil
-    end
-
     local function nilInstances()
         local fn = getnilinstances or get_nil_instances or getnilobjects
         if not fn then return nil end
@@ -38,28 +30,6 @@ return function(section, data)
         local ok, list = pcall(fn)
         if not ok or type(list) ~= "table" then return nil end
         return list
-    end
-
-    -- every nuke, not just the first match. the level is not in the name,
-    -- a level 1 and a level 16 are both Models called "Nuke", so we collect
-    -- all of them and let the server sort out which merges are legal.
-    local function getNukes()
-        local out = {}
-        local list = nilInstances()
-        if not list then return out end
-
-        for _, v in next, list do
-            local ok, isNuke = pcall(function()
-                return typeof(v) == "Instance"
-                    and v.ClassName == "Model"
-                    and v.Name == "Nuke"
-            end)
-            if ok and isNuke then
-                out[#out + 1] = v
-            end
-        end
-
-        return out
     end
 
     elements:Toggle("Auto Lock Base", section, setdata.lockbase, function(v)
@@ -80,55 +50,98 @@ return function(section, data)
     end)
 
     ----------------------------------------------------------------
-    -- auto merge
+    -- auto merge: pull every rocket in front of the player, fully local
     ----------------------------------------------------------------
+
+    local function getRoot()
+        local char = plr.Character
+        return char and char:FindFirstChild("HumanoidRootPart")
+    end
+
+    -- rockets can sit in workspace.Nukes and also be parented to nil,
+    -- collect from both so nothing is missed
+    local function getRockets()
+        local out = {}
+        local seen = {}
+
+        local function add(v)
+            local ok, isModel = pcall(function()
+                return typeof(v) == "Instance" and v:IsA("Model")
+            end)
+            if ok and isModel and not seen[v] then
+                seen[v] = true
+                out[#out + 1] = v
+            end
+        end
+
+        local folder = workspace:FindFirstChild("Nukes")
+        if folder then
+            for _, v in pairs(folder:GetChildren()) do
+                add(v)
+            end
+        end
+
+        local list = nilInstances()
+        if list then
+            for _, v in next, list do
+                local ok, isNuke = pcall(function()
+                    return typeof(v) == "Instance"
+                        and v.ClassName == "Model"
+                        and v.Name == "Nuke"
+                end)
+                if ok and isNuke then
+                    add(v)
+                end
+            end
+        end
+
+        return out
+    end
 
     elements:Toggle("Auto Merge", section, setdata.merge, function(v)
         env.MNMerge = v
         env.setconfig("merge", v)
         if not v then return end
 
-        if not nilInstances() then
-            warn("[BrainrotPolice] this executor has no getnilinstances, Auto Merge cannot work")
-            env.MNMerge = false
-            return
-        end
-
         task.spawn(function()
             local announced = false
 
             while env.MNMerge do
-                local nukes = getNukes()
+                local root = getRoot()
 
-                if not announced then
-                    print("[BrainrotPolice] Auto Merge: " .. #nukes .. " nukes visible")
-                    announced = true
-                end
+                if root then
+                    local rockets = getRockets()
 
-                local pickUp = nukeRemote("PickUp")
-                local merge = netRemote("RE/Merge/MergeRequest")
-                    or nukeRemote("MergeRequest")
-
-                for _, nuke in ipairs(nukes) do
-                    if not env.MNMerge then break end
-
-                    -- pick it up, then request the merge with the same nuke
-                    if pickUp then
-                        pcall(function()
-                            pickUp:FireServer(nuke)
-                        end)
+                    if not announced then
+                        print("[BrainrotPolice] Auto Merge: " .. #rockets .. " rockets pulled")
+                        announced = true
                     end
 
-                    if merge then
+                    -- 3 studs in front of the player, stacked slightly apart
+                    for i, rocket in ipairs(rockets) do
+                        if not env.MNMerge then break end
+
                         pcall(function()
-                            merge:FireServer(nuke)
+                            -- a nil parented model is not rendered, so show it
+                            if rocket.Parent == nil then
+                                rocket.Parent = workspace
+                            end
+
+                            local offset = CFrame.new(0, 0, -3)
+                            rocket:PivotTo(root.CFrame * offset)
+
+                            -- kill any velocity so they do not drift away
+                            for _, part in pairs(rocket:GetDescendants()) do
+                                if part:IsA("BasePart") then
+                                    part.AssemblyLinearVelocity = Vector3.zero
+                                    part.AssemblyAngularVelocity = Vector3.zero
+                                end
+                            end
                         end)
                     end
-
-                    task.wait(0.1)
                 end
 
-                task.wait(0.5)
+                task.wait(0.05)
             end
         end)
     end)
