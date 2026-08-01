@@ -16,6 +16,7 @@ return function(section, data)
     setdata.autoprestige = setdata.autoprestige or false
     setdata.autoclick = setdata.autoclick or false
     setdata.zone = setdata.zone or "Forest"
+    setdata.attackinterval = setdata.attackinterval or 0.25
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
@@ -28,6 +29,10 @@ return function(section, data)
     ----------------------------------------------------------------
     -- auto click attack
     ----------------------------------------------------------------
+
+    -- seconds between attack sweeps. firing every frame floods the remote
+    -- and lags the game out, 0.25s is plenty for a click based game.
+    local attackInterval = tonumber(setdata.attackinterval) or 0.25
 
     -- enemies can be models, parts or a folder wrapping either
     local function enemyPosition(enemy)
@@ -88,10 +93,30 @@ return function(section, data)
         return nil
     end
 
-    -- name of the zone the player is currently closest to
-    local function detectZone()
+    -- zone centres barely move, so compute them once and reuse
+    local zoneCache
+
+    local function buildZoneCache()
         local folder = workspace:FindFirstChild("Zones")
         if not folder then return nil end
+
+        local cache = {}
+        for _, z in pairs(folder:GetChildren()) do
+            local center = zoneCenter(z)
+            if center then
+                cache[#cache + 1] = { name = z.Name, center = center }
+            end
+        end
+
+        return cache
+    end
+
+    -- name of the zone the player is currently closest to
+    local function detectZone()
+        if not zoneCache or #zoneCache == 0 then
+            zoneCache = buildZoneCache()
+        end
+        if not zoneCache then return nil end
 
         local root = getRoot()
         if not root then return nil end
@@ -99,13 +124,10 @@ return function(section, data)
         local myPos = root.Position
         local best, bestDist = nil, math.huge
 
-        for _, z in pairs(folder:GetChildren()) do
-            local center = zoneCenter(z)
-            if center then
-                local dist = (center - myPos).Magnitude
-                if dist < bestDist then
-                    best, bestDist = z.Name, dist
-                end
+        for _, entry in ipairs(zoneCache) do
+            local dist = (entry.center - myPos).Magnitude
+            if dist < bestDist then
+                best, bestDist = entry.name, dist
             end
         end
 
@@ -123,7 +145,7 @@ return function(section, data)
                     env.setconfig("zone", detected)
                 end
             end
-            task.wait(1)
+            task.wait(3)
         end
     end)
 
@@ -151,44 +173,42 @@ return function(section, data)
         return true
     end
 
-    -- the second remote argument is the enemy id, so we sweep 1-10 to cover
-    -- every enemy slot the zone can have.
-    local ENEMY_IDS = 10
-
-    -- tries to find the enemy that belongs to a given id, so each id gets its
-    -- own position instead of everything being sent to one spot
-    local function positionForId(id)
+    -- builds the id -> position map in ONE pass over the folder.
+    -- the old code rescanned the whole folder once per id, every frame.
+    local function collectTargets()
         local folder = workspace:FindFirstChild("EnemyRender")
-        if not folder then return nil end
+        if not folder then return nil, 0 end
 
-        local kids = folder:GetChildren()
+        local targets, count = {}, 0
 
-        -- 1. an enemy literally named after the id
-        local byName = folder:FindFirstChild(tostring(id))
-        if byName and isAlive(byName) then
-            return enemyPosition(byName)
-        end
-
-        -- 2. an id carrying attribute
-        for _, enemy in pairs(kids) do
+        for index, enemy in ipairs(folder:GetChildren()) do
             if isAlive(enemy) then
-                local eid = enemy:GetAttribute("Id")
-                    or enemy:GetAttribute("EnemyId")
-                    or enemy:GetAttribute("Index")
-                if eid and tonumber(eid) == id then
-                    return enemyPosition(enemy)
+                local pos = enemyPosition(enemy)
+                if pos then
+                    -- prefer an explicit id, otherwise use the render order
+                    local id = tonumber(enemy.Name)
+                        or tonumber(enemy:GetAttribute("Id"))
+                        or tonumber(enemy:GetAttribute("EnemyId"))
+                        or tonumber(enemy:GetAttribute("Index"))
+                        or index
+
+                    if targets[id] == nil then
+                        targets[id] = pos
+                        count = count + 1
+                    end
                 end
             end
         end
 
-        -- 3. fall back to the nth rendered enemy
-        local nth = kids[id]
-        if nth and isAlive(nth) then
-            return enemyPosition(nth)
-        end
-
-        return nil
+        return targets, count
     end
+
+    elements:Textbox("Attack Interval (default 0.25)", section, tostring(attackInterval), function(v)
+        local n = tonumber(v)
+        if not n or n < 0.05 then return end
+        attackInterval = n
+        env.setconfig("attackinterval", n)
+    end)
 
     elements:Toggle("Auto Click Attack", section, setdata.autoclick, function(v)
         env.AutoClickAttack = v
@@ -204,27 +224,22 @@ return function(section, data)
 
         task.spawn(function()
             while env.AutoClickAttack do
-                local folder = workspace:FindFirstChild("EnemyRender")
+                local targets, count = collectTargets()
 
-                if folder then
-                    -- fire every enemy id in the same frame so all of them get hit
-                    for id = 1, ENEMY_IDS do
-                        task.spawn(function()
-                            if not env.AutoClickAttack then return end
+                if targets and count > 0 then
+                    -- one remote per LIVING enemy, nothing wasted on empty ids,
+                    -- and fired sequentially instead of 10 threads per frame
+                    for id, pos in pairs(targets) do
+                        if not env.AutoClickAttack then break end
 
-                            local pos = positionForId(id)
-                            if not pos then return end
-
-                            pcall(function()
-                                reportClickAttack:FireServer(zone, id, pos)
-                            end)
+                        pcall(function()
+                            reportClickAttack:FireServer(zone, id, pos)
                         end)
                     end
-
-                    runservice.Heartbeat:Wait()
-                else
-                    task.wait(0.2)
                 end
+
+                -- fixed rate instead of every frame, this is what caused the lag
+                task.wait(attackInterval)
             end
         end)
     end)
