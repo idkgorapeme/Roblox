@@ -9,9 +9,13 @@ return function(section, data)
     local plr = players.LocalPlayer
 
     env.SBPump = false
+    env.SBUpgrade = false
+    env.SBLaunch = false
 
     local setdata = data[tostring(game.PlaceId)] or {}
     setdata.pump = setdata.pump or false
+    setdata.upgrade = setdata.upgrade or false
+    setdata.launch = setdata.launch or false
     setdata.basename = setdata.basename or ""
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
@@ -25,6 +29,14 @@ return function(section, data)
     local fuelService = services:WaitForChild("FuelService")
     local fuelRF = fuelService:WaitForChild("RF")
     local manualTick = fuelRF:WaitForChild("ManualTick")
+
+    local fuelPlaceService = services:WaitForChild("FuelPlaceService")
+    local fuelPlaceRF = fuelPlaceService:WaitForChild("RF")
+    local levelUp = fuelPlaceRF:WaitForChild("LevelUp")
+
+    local boatService = services:WaitForChild("BoatService")
+    local boatRF = boatService:WaitForChild("RF")
+    local launch = boatRF:WaitForChild("Launch")
 
     -- manual override, leave empty to auto detect
     local baseOverride = tostring(setdata.basename or "")
@@ -142,6 +154,61 @@ return function(section, data)
                 end
 
                 task.wait()
+            end
+        end)
+    end)
+
+    ----------------------------------------------------------------
+    -- auto upgrade
+    ----------------------------------------------------------------
+
+    elements:Toggle("Auto Upgrade", section, setdata.upgrade, function(v)
+        env.SBUpgrade = v
+        env.setconfig("upgrade", v)
+        if not v then return end
+
+        task.spawn(function()
+            while env.SBUpgrade do
+                local base = getMyBase()
+                local fuelPlaces = base and base:FindFirstChild("FuelPlaces")
+
+                if fuelPlaces then
+                    -- level up every fuel place, not just the first one
+                    for _, place in pairs(fuelPlaces:GetChildren()) do
+                        if not env.SBUpgrade then break end
+
+                        pcall(function()
+                            levelUp:InvokeServer(place, 1)
+                        end)
+                    end
+                end
+
+                task.wait(0.2)
+            end
+        end)
+    end)
+
+    ----------------------------------------------------------------
+    -- auto launch
+    ----------------------------------------------------------------
+
+    elements:Toggle("Auto Launch", section, setdata.launch, function(v)
+        env.SBLaunch = v
+        env.setconfig("launch", v)
+        if not v then return end
+
+        task.spawn(function()
+            while env.SBLaunch do
+                local base = getMyBase()
+                local sailPad = base and base:FindFirstChild("SailPad")
+
+                if sailPad then
+                    pcall(function()
+                        launch:InvokeServer(sailPad)
+                    end)
+                end
+
+                task.wait(1)
             end
         end)
     end)
