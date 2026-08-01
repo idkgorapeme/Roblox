@@ -11,7 +11,6 @@ return function(section, data)
     env.DBCollect = false
     env.DBUpgrade = false
     env.DBRebirth = false
-    env.DBSpy = false
 
     local setdata = data[tostring(game.PlaceId)] or {}
     setdata.collect = setdata.collect or false
@@ -125,15 +124,6 @@ return function(section, data)
         env.setconfig("basenum", baseOverride)
     end)
 
-    elements:Button("Show Detected Base", section, function()
-        local base = getMyBase()
-        if base then
-            print("[BrainrotPolice] detected base:", base.Name, "(" .. base:GetFullName() .. ")")
-        else
-            warn("[BrainrotPolice] could not find a base, set the number manually")
-        end
-    end)
-
     elements:Toggle("Auto Collect", section, setdata.collect, function(v)
         env.DBCollect = v
         env.setconfig("collect", v)
@@ -220,102 +210,5 @@ return function(section, data)
                 task.wait(1)
             end
         end)
-    end)
-
-    ----------------------------------------------------------------
-    -- remote spy: capture the exact arguments the game sends
-    ----------------------------------------------------------------
-
-    local spyLog = {}
-    local spyRestore
-
-    local function describe(v)
-        local t = typeof(v)
-        if t == "Instance" then
-            return "Instance<" .. v.ClassName .. ">(" .. v:GetFullName() .. ")"
-        elseif t == "Vector3" then
-            return string.format("Vector3.new(%s, %s, %s)", v.X, v.Y, v.Z)
-        elseif t == "table" then
-            local ok, encoded = pcall(function()
-                return game:GetService("HttpService"):JSONEncode(v)
-            end)
-            return ok and ("table " .. encoded) or "table{...}"
-        elseif t == "string" then
-            return '"' .. v .. '"'
-        end
-        return tostring(v)
-    end
-
-    elements:Toggle("Remote Spy (logs your actions)", section, false, function(v)
-        env.DBSpy = v
-
-        if not v then
-            if spyRestore then
-                pcall(spyRestore)
-                spyRestore = nil
-            end
-            return
-        end
-
-        spyLog = {}
-
-        local ok = pcall(function()
-            local mt = getrawmetatable(game)
-            local old = mt.__namecall
-
-            setreadonly(mt, false)
-
-            mt.__namecall = newcclosure(function(self, ...)
-                local method = getnamecallmethod()
-
-                if env.DBSpy and (method == "FireServer" or method == "InvokeServer") then
-                    local args = { ... }
-                    local parts = {}
-                    for i = 1, select("#", ...) do
-                        parts[#parts + 1] = describe(args[i])
-                    end
-
-                    local line = self:GetFullName() .. ":" .. method .. "("
-                        .. table.concat(parts, ", ") .. ")"
-
-                    if spyLog[#spyLog] ~= line then
-                        spyLog[#spyLog + 1] = line
-                        print("[spy] " .. line)
-                    end
-                end
-
-                return old(self, ...)
-            end)
-
-            setreadonly(mt, true)
-
-            spyRestore = function()
-                setreadonly(mt, false)
-                mt.__namecall = old
-                setreadonly(mt, true)
-            end
-        end)
-
-        if not ok then
-            warn("[BrainrotPolice] remote spy not supported by this executor")
-            env.DBSpy = false
-        end
-    end)
-
-    elements:Button("Copy Spy Log", section, function()
-        if #spyLog == 0 then
-            warn("[BrainrotPolice] spy log is empty, enable Remote Spy and do the action")
-            return
-        end
-
-        local text = "PlaceId: " .. tostring(game.PlaceId) .. "\n\n"
-            .. table.concat(spyLog, "\n")
-
-        pcall(function()
-            writefile("BrainrotPolice/spy_" .. tostring(game.PlaceId) .. ".txt", text)
-        end)
-
-        local copied = pcall(function() setclipboard(text) end)
-        print("[BrainrotPolice] " .. #spyLog .. " calls logged, copied=" .. tostring(copied))
     end)
 end
