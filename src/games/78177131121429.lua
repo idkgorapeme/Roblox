@@ -10,11 +10,13 @@ return function(section, data)
 
     env.DBCollect = false
     env.DBUpgrade = false
+    env.DBRebirth = false
     env.DBSpy = false
 
     local setdata = data[tostring(game.PlaceId)] or {}
     setdata.collect = setdata.collect or false
     setdata.upgrade = setdata.upgrade or false
+    setdata.rebirth = setdata.rebirth or false
     setdata.basenum = setdata.basenum or ""
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
@@ -25,6 +27,7 @@ return function(section, data)
     local collectCash = remoteEvents:WaitForChild("RequestCollectCash")
     local incrementSpeed = remoteEvents:WaitForChild("IncrementSpeed")
     local incrementStrength = remoteEvents:WaitForChild("IncrementStrength")
+    local rebirthEvent = remoteEvents:WaitForChild("Rebirth")
 
     local SLOT_COUNT = 30
 
@@ -182,6 +185,26 @@ return function(section, data)
                 end)
 
                 task.wait(0.5)
+            end
+        end)
+    end)
+
+    ----------------------------------------------------------------
+    -- auto rebirth
+    ----------------------------------------------------------------
+
+    elements:Toggle("Auto Rebirth", section, setdata.rebirth, function(v)
+        env.DBRebirth = v
+        env.setconfig("rebirth", v)
+        if not v then return end
+
+        task.spawn(function()
+            while env.DBRebirth do
+                pcall(function()
+                    rebirthEvent:FireServer()
+                end)
+
+                task.wait(1)
             end
         end)
     end)
