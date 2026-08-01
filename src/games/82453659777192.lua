@@ -11,11 +11,13 @@ return function(section, data)
     env.SBPump = false
     env.SBUpgrade = false
     env.SBLaunch = false
+    env.SBFuel = false
 
     local setdata = data[tostring(game.PlaceId)] or {}
     setdata.pump = setdata.pump or false
     setdata.upgrade = setdata.upgrade or false
     setdata.launch = setdata.launch or false
+    setdata.fuel = setdata.fuel or false
     setdata.basename = setdata.basename or ""
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
@@ -52,6 +54,8 @@ return function(section, data)
     local function manualTick() return knitRemote("FuelService", "ManualTick") end
     local function levelUp() return knitRemote("FuelPlaceService", "LevelUp") end
     local function launch() return knitRemote("BoatService", "Launch") end
+    local function collectFuel() return knitRemote("FuelService", "CollectFuel") end
+    local function addFuel() return knitRemote("BoatService", "AddFuel") end
 
     -- manual override, leave empty to auto detect
     local baseOverride = tostring(setdata.basename or "")
@@ -227,6 +231,80 @@ return function(section, data)
                 end
 
                 task.wait(1)
+            end
+        end)
+    end)
+
+    ----------------------------------------------------------------
+    -- auto fuel
+    ----------------------------------------------------------------
+
+    -- fuel models live outside the datamodel tree, so they only show up
+    -- through getnilinstances
+    local function getNilModels()
+        local out = {}
+
+        local fn = getnilinstances or get_nil_instances or getnilobjects
+        if not fn then return out end
+
+        local ok, list = pcall(fn)
+        if not ok or type(list) ~= "table" then return out end
+
+        for _, v in next, list do
+            -- the fuels are Models named with a plain number
+            local okc, isModel = pcall(function()
+                return v.ClassName == "Model"
+            end)
+            if okc and isModel and tonumber(v.Name) then
+                out[#out + 1] = v
+            end
+        end
+
+        return out
+    end
+
+    elements:Toggle("Auto Fuel", section, setdata.fuel, function(v)
+        env.SBFuel = v
+        env.setconfig("fuel", v)
+        if not v then return end
+
+        if not (getnilinstances or get_nil_instances or getnilobjects) then
+            warn("[BrainrotPolice] this executor has no getnilinstances, auto fuel cannot work")
+            env.SBFuel = false
+            return
+        end
+
+        task.spawn(function()
+            while env.SBFuel do
+                local fuels = getNilModels()
+
+                -- 1. collect every fuel
+                local collect = collectFuel()
+                if collect then
+                    for _, fuel in ipairs(fuels) do
+                        if not env.SBFuel then break end
+                        pcall(function()
+                            collect:InvokeServer(fuel)
+                        end)
+                    end
+                end
+
+                -- 2. feed the same amount into the boat
+                local base = getMyBase()
+                local sailPad = base and base:FindFirstChild("SailPad")
+                local clickProxy = sailPad and sailPad:FindFirstChild("ClickProxy")
+                local add = addFuel()
+
+                if clickProxy and add then
+                    for _ = 1, math.max(#fuels, 1) do
+                        if not env.SBFuel then break end
+                        pcall(function()
+                            add:InvokeServer(clickProxy)
+                        end)
+                    end
+                end
+
+                task.wait(0.5)
             end
         end)
     end)
