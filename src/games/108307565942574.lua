@@ -50,10 +50,92 @@ return function(section, data)
         return part and part.Position or nil
     end
 
-    elements:Textbox("Zone (default Forest)", section, zone, function(v)
-        if not v or v == "" then return end
-        zone = v
-        env.setconfig("zone", v)
+    ----------------------------------------------------------------
+    -- zone detection: pick the zone whose centre is closest to the player
+    ----------------------------------------------------------------
+
+    local function getRoot()
+        local char = plr.Character
+        return char and char:FindFirstChild("HumanoidRootPart")
+    end
+
+    -- centre of a zone, works for parts, models and folders of parts
+    local function zoneCenter(z)
+        if z:IsA("BasePart") then
+            return z.Position
+        end
+
+        if z:IsA("Model") then
+            local ok, cf = pcall(function()
+                return z:GetPivot()
+            end)
+            if ok and cf then return cf.Position end
+        end
+
+        -- folder or anything else: average the parts inside it
+        local sum, count = Vector3.zero, 0
+        for _, d in pairs(z:GetDescendants()) do
+            if d:IsA("BasePart") then
+                sum = sum + d.Position
+                count = count + 1
+            end
+        end
+
+        if count > 0 then
+            return sum / count
+        end
+
+        return nil
+    end
+
+    -- name of the zone the player is currently closest to
+    local function detectZone()
+        local folder = workspace:FindFirstChild("Zones")
+        if not folder then return nil end
+
+        local root = getRoot()
+        if not root then return nil end
+
+        local myPos = root.Position
+        local best, bestDist = nil, math.huge
+
+        for _, z in pairs(folder:GetChildren()) do
+            local center = zoneCenter(z)
+            if center then
+                local dist = (center - myPos).Magnitude
+                if dist < bestDist then
+                    best, bestDist = z.Name, dist
+                end
+            end
+        end
+
+        return best
+    end
+
+    -- refresh it in the background so walking into a new zone is picked up.
+    -- only runs while the farm is on, and dies with the script on unload.
+    task.spawn(function()
+        while env.BrainrotPolice do
+            if env.AutoClickAttack then
+                local detected = detectZone()
+                if detected and detected ~= zone then
+                    zone = detected
+                    env.setconfig("zone", detected)
+                end
+            end
+            task.wait(1)
+        end
+    end)
+
+    elements:Button("Detect Zone Now", section, function()
+        local detected = detectZone()
+        if detected then
+            zone = detected
+            env.setconfig("zone", detected)
+            print("[BrainrotPolice] zone:", detected)
+        else
+            warn("[BrainrotPolice] could not detect a zone from workspace.Zones")
+        end
     end)
 
     -- true when the enemy is still alive and rendered
@@ -112,6 +194,13 @@ return function(section, data)
         env.AutoClickAttack = v
         env.setconfig("autoclick", v)
         if not v then return end
+
+        -- make sure we are on the right zone before the first hit
+        local detected = detectZone()
+        if detected then
+            zone = detected
+            env.setconfig("zone", detected)
+        end
 
         task.spawn(function()
             while env.AutoClickAttack do
