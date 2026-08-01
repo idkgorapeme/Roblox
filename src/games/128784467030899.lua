@@ -252,47 +252,37 @@ return function(section, data)
                     local rockets = getRockets()
 
                     if not announced then
-                        print("[BrainrotPolice] Auto Merge: " .. #rockets .. " rockets pulled")
+                        print("[BrainrotPolice] Auto Merge: " .. #rockets .. " nukes pulled")
                         if #rockets == 0 then
-                            warn("[BrainrotPolice] no rockets found, press Debug Nukes")
+                            warn("[BrainrotPolice] no nukes found, press Debug Nukes")
                         end
                         announced = true
                     end
 
-                    for i, rocket in ipairs(rockets) do
+                    -- 3 studs in front of the player, all of them, every tick
+                    local target = root.CFrame * CFrame.new(0, 0, -3)
+
+                    for _, rocket in ipairs(rockets) do
                         if not env.MNMerge then break end
 
                         pcall(function()
-                            -- a nil parented model is not rendered, so show it
                             if rocket.Parent == nil then
                                 rocket.Parent = workspace
                             end
 
-                            -- anchor first, otherwise physics drags them back
-                            -- the moment we let go
+                            rocket:PivotTo(target)
+
                             for _, part in pairs(rocket:GetDescendants()) do
                                 if part:IsA("BasePart") then
-                                    part.Anchored = true
                                     part.AssemblyLinearVelocity = Vector3.zero
                                     part.AssemblyAngularVelocity = Vector3.zero
                                 end
                             end
-
-                            -- spread them in a ring in front of the player so
-                            -- they do not all occupy the exact same stud
-                            local angle = (i / math.max(#rockets, 1)) * math.pi * 2
-                            local offset = CFrame.new(
-                                math.cos(angle) * 4,
-                                0,
-                                -6 + math.sin(angle) * 4
-                            )
-
-                            rocket:PivotTo(root.CFrame * offset)
                         end)
                     end
                 end
 
-                task.wait(0.1)
+                task.wait(0.01)
             end
         end)
     end)
