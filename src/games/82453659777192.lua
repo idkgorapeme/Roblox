@@ -230,7 +230,12 @@ return function(section, data)
                     end)
                 end
 
-                task.wait(1)
+                -- give Auto Fuel time to collect and load fuel before the
+                -- next launch. stepped so toggling off reacts quickly.
+                for _ = 1, 100 do
+                    if not env.SBLaunch then return end
+                    task.wait(0.1)
+                end
             end
         end)
     end)
@@ -251,11 +256,12 @@ return function(section, data)
         if not ok or type(list) ~= "table" then return out end
 
         for _, v in next, list do
-            -- the fuels are Models named with a plain number
+            -- take every nil Model. fuel names vary per fuel type, so filtering
+            -- on the name misses the ones that are not plain numbers.
             local okc, isModel = pcall(function()
                 return v.ClassName == "Model"
             end)
-            if okc and isModel and tonumber(v.Name) then
+            if okc and isModel then
                 out[#out + 1] = v
             end
         end
@@ -278,14 +284,18 @@ return function(section, data)
             while env.SBFuel do
                 local fuels = getNilModels()
 
-                -- 1. collect every fuel
+                -- 1. collect every fuel, counting the ones the server accepted
+                local collected = 0
                 local collect = collectFuel()
                 if collect then
                     for _, fuel in ipairs(fuels) do
                         if not env.SBFuel then break end
-                        pcall(function()
+                        local ok = pcall(function()
                             collect:InvokeServer(fuel)
                         end)
+                        if ok then
+                            collected = collected + 1
+                        end
                     end
                 end
 
@@ -296,7 +306,7 @@ return function(section, data)
                 local add = addFuel()
 
                 if clickProxy and add then
-                    for _ = 1, math.max(#fuels, 1) do
+                    for _ = 1, math.max(collected, 1) do
                         if not env.SBFuel then break end
                         pcall(function()
                             add:InvokeServer(clickProxy)
