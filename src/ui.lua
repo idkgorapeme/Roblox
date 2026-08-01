@@ -1,6 +1,9 @@
 local hui = gethui or get_hidden_gui
 local getexec = identifyexecutor
 local coregui = game:GetService("CoreGui")
+local players = game:GetService("Players")
+local runservice = game:GetService("RunService")
+local lp = players.LocalPlayer
 local userinputservice = game:GetService("UserInputService")
 local httpservice = game:GetService("HttpService")
 local exservice = game:GetService("ExperienceService")
@@ -291,6 +294,97 @@ if not ok or #gamePath == 0 or gamePath == "404: Not Found" then
 
             CurSection = Sections.GamesList
         end)
+
+        -- no script exists for this place, so offer the dump tools instead.
+        -- these only ever show up on unsupported games.
+        elements:Label("Unsupported game. Dump it and send the output so it can be added.", Sections.Game.Container)
+
+        elements:Button("Dump Game Structure (copies)", Sections.Game.Container, function()
+            local out = {}
+            local function add(...)
+                local parts = {}
+                for _, v in ipairs({...}) do
+                    parts[#parts + 1] = tostring(v)
+                end
+                out[#out + 1] = table.concat(parts, " ")
+            end
+
+            add("PlaceId:", game.PlaceId)
+            add("JobId:", game.JobId)
+            add("Executor:", (getexec and getexec()) or "unknown")
+
+            add("")
+            add("======== workspace ========")
+            for _, child in pairs(workspace:GetChildren()) do
+                add(child.ClassName, "|", child.Name)
+            end
+
+            add("")
+            add("======== ReplicatedStorage ========")
+            for _, child in pairs(game:GetService("ReplicatedStorage"):GetChildren()) do
+                add(child.ClassName, "|", child.Name)
+            end
+
+            add("")
+            add("======== remotes ========")
+            local n = 0
+            for _, r in pairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
+                if r:IsA("RemoteEvent") or r:IsA("RemoteFunction") then
+                    n = n + 1
+                    if n <= 200 then
+                        add(r.ClassName, "|", r:GetFullName())
+                    end
+                end
+            end
+            add("total remotes:", n)
+
+            add("")
+            add("======== leaderstats ========")
+            local ls = players.LocalPlayer:FindFirstChild("leaderstats")
+            if ls then
+                for _, stat in pairs(ls:GetChildren()) do
+                    add(stat.Name, "=", tostring(stat.Value))
+                end
+            else
+                add("no leaderstats")
+            end
+
+            add("")
+            add("======== player attributes ========")
+            local attrs = players.LocalPlayer:GetAttributes()
+            if next(attrs) == nil then
+                add("none")
+            else
+                for k, v in pairs(attrs) do
+                    add(k, "=", tostring(v))
+                end
+            end
+
+            local text = table.concat(out, "\n")
+            print(text)
+
+            local path = "BrainrotPolice/dump_" .. tostring(game.PlaceId) .. ".txt"
+            local savedOk = pcall(function() writefile(path, text) end)
+            local copiedOk = pcall(function() setclipboard(text) end)
+
+            if copiedOk then
+                print("[BrainrotPolice] dump copied to clipboard (" .. #text .. " chars, PlaceId included)")
+            else
+                warn("[BrainrotPolice] setclipboard not available, use " .. path)
+            end
+
+            if savedOk then
+                print("[BrainrotPolice] dump also saved to " .. path)
+            end
+        end)
+
+        elements:Button("Copy PlaceId", Sections.Game.Container, function()
+            local okc = pcall(function()
+                setclipboard(tostring(game.PlaceId))
+            end)
+            print("[BrainrotPolice] PlaceId " .. tostring(game.PlaceId)
+                .. (okc and " copied" or " (clipboard unavailable)"))
+        end)
     end
 else
     local gameModule = loadstring(gamePath)()
@@ -330,10 +424,6 @@ end)
 ----------------------------------------------------------------
 -- player movement cheats
 ----------------------------------------------------------------
-
-local players = game:GetService("Players")
-local runservice = game:GetService("RunService")
-local lp = players.LocalPlayer
 
 local env = getgenv()
 
