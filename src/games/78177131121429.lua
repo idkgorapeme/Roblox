@@ -9,267 +9,180 @@ return function(section, data)
     local plr = players.LocalPlayer
 
     env.DBCollect = false
-    env.DBSell = false
-    env.DBRebirth = false
-    env.DBDrill = false
-    env.DBPickup = false
+    env.DBUpgrade = false
     env.DBSpy = false
-    env.DBSpin = false
-    env.DBLucky = false
-    env.DBWorldCup = false
-    env.DBTpBase = false
-    env.DBDaily = false
-    env.DBPlaytime = false
-    env.DBOffline = false
 
     local setdata = data[tostring(game.PlaceId)] or {}
     setdata.collect = setdata.collect or false
-    setdata.sell = setdata.sell or false
-    setdata.rebirth = setdata.rebirth or false
-    setdata.drill = setdata.drill or false
-    setdata.pickup = setdata.pickup or false
-    setdata.spin = setdata.spin or false
-    setdata.lucky = setdata.lucky or false
-    setdata.worldcup = setdata.worldcup or false
-    setdata.tpbase = setdata.tpbase or false
-    setdata.daily = setdata.daily or false
-    setdata.playtime = setdata.playtime or false
-    setdata.offline = setdata.offline or false
+    setdata.upgrade = setdata.upgrade or false
+    setdata.basenum = setdata.basenum or ""
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
     local network = replicatedstorage:WaitForChild("Network")
     local remoteEvents = network:WaitForChild("RemoteEvents")
 
-    local function remote(name)
-        return remoteEvents:FindFirstChild(name)
-    end
+    local collectCash = remoteEvents:WaitForChild("RequestCollectCash")
+    local incrementSpeed = remoteEvents:WaitForChild("IncrementSpeed")
+    local incrementStrength = remoteEvents:WaitForChild("IncrementStrength")
+
+    local SLOT_COUNT = 30
+
+    -- manual override, leave empty to auto detect
+    local baseOverride = tostring(setdata.basenum or "")
 
     local function getRoot()
         local char = plr.Character
         return char and char:FindFirstChild("HumanoidRootPart")
     end
 
-    -- fires a no argument remote on an interval while the flag is set
-    local function simpleLoop(flagName, remoteName, interval)
-        local ev = remote(remoteName)
-        if not ev then
-            warn("[BrainrotPolice] remote not found: " .. remoteName)
-            return
+    ----------------------------------------------------------------
+    -- work out which base belongs to us
+    ----------------------------------------------------------------
+
+    -- checks the usual places a game stores the plot owner
+    local function baseBelongsToMe(base)
+        for _, key in ipairs({ "Owner", "OwnerUserId", "OwnerName", "Player", "UserId" }) do
+            local attr = base:GetAttribute(key)
+            if attr ~= nil then
+                if attr == plr.Name or attr == plr.UserId
+                    or tostring(attr) == tostring(plr.UserId) then
+                    return true
+                end
+            end
         end
 
-        while env[flagName] do
-            pcall(function()
-                ev:FireServer()
-            end)
-            task.wait(interval)
+        for _, key in ipairs({ "Owner", "OwnerName", "Player", "OwnerValue" }) do
+            local val = base:FindFirstChild(key)
+            if val and (val:IsA("StringValue") or val:IsA("ObjectValue")
+                or val:IsA("IntValue") or val:IsA("NumberValue")) then
+                local v = val.Value
+                if v == plr or v == plr.Name or v == plr.UserId
+                    or tostring(v) == tostring(plr.UserId) then
+                    return true
+                end
+            end
         end
+
+        -- some games put the name on a sign / billboard text
+        for _, d in pairs(base:GetDescendants()) do
+            if d:IsA("TextLabel") and d.Text and d.Text ~= "" then
+                if string.find(d.Text, plr.Name, 1, true)
+                    or string.find(d.Text, plr.DisplayName, 1, true) then
+                    return true
+                end
+            end
+        end
+
+        return false
+    end
+
+    -- returns the Bases child that is ours, falling back to the closest one
+    local function getMyBase()
+        local bases = workspace:FindFirstChild("Bases")
+        if not bases then return nil end
+
+        if baseOverride ~= "" then
+            local forced = bases:FindFirstChild(baseOverride)
+            if forced then return forced end
+        end
+
+        for _, base in pairs(bases:GetChildren()) do
+            if baseBelongsToMe(base) then
+                return base
+            end
+        end
+
+        -- no ownership marker found, use whichever base we are standing nearest to
+        local root = getRoot()
+        if not root then return nil end
+
+        local best, bestDist = nil, math.huge
+        for _, base in pairs(bases:GetChildren()) do
+            local ok, pivot = pcall(function()
+                return base:GetPivot().Position
+            end)
+            if ok and pivot then
+                local dist = (pivot - root.Position).Magnitude
+                if dist < bestDist then
+                    best, bestDist = base, dist
+                end
+            end
+        end
+
+        return best
     end
 
     ----------------------------------------------------------------
-    -- money
+    -- auto collect
     ----------------------------------------------------------------
 
-    elements:Toggle("Auto Collect Cash", section, setdata.collect, function(v)
+    elements:Textbox("Base Number (empty = auto)", section, baseOverride, function(v)
+        baseOverride = v and v:gsub("%s", "") or ""
+        env.setconfig("basenum", baseOverride)
+    end)
+
+    elements:Button("Show Detected Base", section, function()
+        local base = getMyBase()
+        if base then
+            print("[BrainrotPolice] detected base:", base.Name, "(" .. base:GetFullName() .. ")")
+        else
+            warn("[BrainrotPolice] could not find a base, set the number manually")
+        end
+    end)
+
+    elements:Toggle("Auto Collect", section, setdata.collect, function(v)
         env.DBCollect = v
         env.setconfig("collect", v)
         if not v then return end
-        task.spawn(function()
-            simpleLoop("DBCollect", "RequestCollectCash", 1)
-        end)
-    end)
-
-    elements:Toggle("Auto Sell All", section, setdata.sell, function(v)
-        env.DBSell = v
-        env.setconfig("sell", v)
-        if not v then return end
-        task.spawn(function()
-            simpleLoop("DBSell", "SellAll", 3)
-        end)
-    end)
-
-    elements:Toggle("Auto Rebirth", section, setdata.rebirth, function(v)
-        env.DBRebirth = v
-        env.setconfig("rebirth", v)
-        if not v then return end
-        task.spawn(function()
-            simpleLoop("DBRebirth", "Rebirth", 2)
-        end)
-    end)
-
-    ----------------------------------------------------------------
-    -- drilling / mining
-    ----------------------------------------------------------------
-
-    -- fires every proximity prompt on blocks near the player
-    elements:Toggle("Auto Drill Blocks", section, setdata.drill, function(v)
-        env.DBDrill = v
-        env.setconfig("drill", v)
-        if not v then return end
 
         task.spawn(function()
-            while env.DBDrill do
-                pcall(function()
-                    local blocks = workspace:FindFirstChild("MiningBlocks")
-                    if not blocks then return end
+            while env.DBCollect do
+                local base = getMyBase()
+                local slots = base and base:FindFirstChild("Slots")
 
-                    local root = getRoot()
-                    if not root then return end
+                if slots then
+                    for i = 1, SLOT_COUNT do
+                        if not env.DBCollect then break end
 
-                    for _, block in pairs(blocks:GetDescendants()) do
-                        if not env.DBDrill then return end
+                        local slot = slots:FindFirstChild(tostring(i))
+                        local money = slot and slot:FindFirstChild("Money")
 
-                        if block:IsA("ProximityPrompt") then
-                            local part = block.Parent
-                            if part and part:IsA("BasePart")
-                                and (part.Position - root.Position).Magnitude < 120 then
-                                pcall(function()
-                                    fireproximityprompt(block)
-                                end)
-                            end
+                        if money then
+                            pcall(function()
+                                collectCash:FireServer(money)
+                            end)
+                            task.wait(0.05)
                         end
                     end
-                end)
+                end
 
-                task.wait(0.2)
+                task.wait(1)
             end
         end)
     end)
 
     ----------------------------------------------------------------
-    -- brainrot pickup
+    -- auto upgrade player
     ----------------------------------------------------------------
 
-    -- walks to loose brainrots and grabs them
-    elements:Toggle("Auto Pickup Brainrots", section, setdata.pickup, function(v)
-        env.DBPickup = v
-        env.setconfig("pickup", v)
+    elements:Toggle("Auto Upgrade Player", section, setdata.upgrade, function(v)
+        env.DBUpgrade = v
+        env.setconfig("upgrade", v)
         if not v then return end
 
         task.spawn(function()
-            while env.DBPickup do
+            while env.DBUpgrade do
                 pcall(function()
-                    local folder = workspace:FindFirstChild("Newbrainrots")
-                        or workspace:FindFirstChild("Items")
-                    if not folder then return end
+                    incrementSpeed:FireServer(1)
+                end)
 
-                    for _, item in pairs(folder:GetChildren()) do
-                        if not env.DBPickup then return end
-
-                        local prompt = item:FindFirstChildWhichIsA("ProximityPrompt", true)
-                        if prompt then
-                            local root = getRoot()
-                            local target = item:IsA("Model") and item:GetPivot().Position
-                                or (item:IsA("BasePart") and item.Position)
-
-                            if root and target then
-                                root.CFrame = CFrame.new(target + Vector3.new(0, 4, 0))
-                                task.wait(0.3)
-
-                                local tries = 0
-                                repeat
-                                    pcall(function() fireproximityprompt(prompt) end)
-                                    task.wait(0.1)
-                                    tries = tries + 1
-                                until not item.Parent or tries > 15 or not env.DBPickup
-                            end
-                        end
-                    end
+                pcall(function()
+                    incrementStrength:FireServer(10)
                 end)
 
                 task.wait(0.5)
             end
-        end)
-    end)
-
-    elements:Button("Teleport To Base", section, function()
-        local ev = remote("TeleportToBase")
-        if ev then
-            pcall(function() ev:FireServer() end)
-        else
-            warn("[BrainrotPolice] TeleportToBase not found")
-        end
-    end)
-
-    ----------------------------------------------------------------
-    -- one shot actions, available as a button and as a loop
-    ----------------------------------------------------------------
-
-    elements:Button("Spin Wheel", section, function()
-        local ev = remote("SpinWheel")
-        if ev then pcall(function() ev:FireServer() end) end
-    end)
-
-    elements:Toggle("Auto Spin Wheel", section, setdata.spin, function(v)
-        env.DBSpin = v
-        env.setconfig("spin", v)
-        if not v then return end
-        task.spawn(function()
-            simpleLoop("DBSpin", "SpinWheel", 5)
-        end)
-    end)
-
-    elements:Button("Open Lucky Block", section, function()
-        local ev = remote("RequestOpenLuckyBlock")
-        if ev then pcall(function() ev:FireServer() end) end
-    end)
-
-    elements:Toggle("Auto Lucky Block", section, setdata.lucky, function(v)
-        env.DBLucky = v
-        env.setconfig("lucky", v)
-        if not v then return end
-        task.spawn(function()
-            simpleLoop("DBLucky", "RequestOpenLuckyBlock", 2)
-        end)
-    end)
-
-    elements:Button("Claim World Cup Quest", section, function()
-        local ev = remote("ClaimWorldCupQuest")
-        if ev then pcall(function() ev:FireServer() end) end
-    end)
-
-    elements:Toggle("Auto World Cup Quest", section, setdata.worldcup, function(v)
-        env.DBWorldCup = v
-        env.setconfig("worldcup", v)
-        if not v then return end
-        task.spawn(function()
-            simpleLoop("DBWorldCup", "ClaimWorldCupQuest", 5)
-        end)
-    end)
-
-    elements:Toggle("Auto Teleport To Base", section, setdata.tpbase, function(v)
-        env.DBTpBase = v
-        env.setconfig("tpbase", v)
-        if not v then return end
-        task.spawn(function()
-            simpleLoop("DBTpBase", "TeleportToBase", 10)
-        end)
-    end)
-
-    elements:Toggle("Auto Claim Daily Rewards", section, setdata.daily, function(v)
-        env.DBDaily = v
-        env.setconfig("daily", v)
-        if not v then return end
-        task.spawn(function()
-            simpleLoop("DBDaily", "DailyRewards", 30)
-        end)
-    end)
-
-    elements:Toggle("Auto Playtime Unlock", section, setdata.playtime, function(v)
-        env.DBPlaytime = v
-        env.setconfig("playtime", v)
-        if not v then return end
-        task.spawn(function()
-            simpleLoop("DBPlaytime", "PlaytimeUnlock", 15)
-        end)
-    end)
-
-    elements:Toggle("Auto Offline Earnings", section, setdata.offline, function(v)
-        env.DBOffline = v
-        env.setconfig("offline", v)
-        if not v then return end
-        task.spawn(function()
-            simpleLoop("DBOffline", "OfflineEarnings", 20)
         end)
     end)
 
@@ -329,7 +242,6 @@ return function(section, data)
                     local line = self:GetFullName() .. ":" .. method .. "("
                         .. table.concat(parts, ", ") .. ")"
 
-                    -- skip duplicates so the log stays readable
                     if spyLog[#spyLog] ~= line then
                         spyLog[#spyLog + 1] = line
                         print("[spy] " .. line)
