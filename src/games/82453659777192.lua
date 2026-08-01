@@ -244,24 +244,32 @@ return function(section, data)
     -- auto fuel
     ----------------------------------------------------------------
 
-    -- fuel models live outside the datamodel tree, so they only show up
-    -- through getnilinstances
-    local function getNilModels()
-        local out = {}
-
+    -- Fuel models are parented to nil, so they only exist in getnilinstances.
+    -- Two things made the old version fail:
+    --   1. InvokeServer BLOCKS until the server replies. Firing it at a junk
+    --      model could hang the loop forever, so nothing after it ever ran.
+    --   2. pcall returning true does not mean the fuel was accepted, so the
+    --      AddFuel count was inflated and fired far too often.
+    local function nilInstances()
         local fn = getnilinstances or get_nil_instances or getnilobjects
-        if not fn then return out end
+        if not fn then return nil end
 
         local ok, list = pcall(fn)
-        if not ok or type(list) ~= "table" then return out end
+        if not ok or type(list) ~= "table" then return nil end
+        return list
+    end
+
+    -- every nil Model, whatever it is called
+    local function getFuelModels()
+        local out = {}
+        local list = nilInstances()
+        if not list then return out end
 
         for _, v in next, list do
-            -- take every nil Model. fuel names vary per fuel type, so filtering
-            -- on the name misses the ones that are not plain numbers.
-            local okc, isModel = pcall(function()
-                return v.ClassName == "Model"
+            local ok, isModel = pcall(function()
+                return typeof(v) == "Instance" and v.ClassName == "Model"
             end)
-            if okc and isModel then
+            if ok and isModel then
                 out[#out + 1] = v
             end
         end
@@ -269,48 +277,85 @@ return function(section, data)
         return out
     end
 
+    -- InvokeServer with a watchdog so a non responding call cannot freeze us
+    local function safeInvoke(rf, timeout, ...)
+        local args = table.pack(...)
+        local finished, succeeded = false, false
+
+        task.spawn(function()
+            local ok = pcall(function()
+                rf:InvokeServer(table.unpack(args, 1, args.n))
+            end)
+            succeeded = ok
+            finished = true
+        end)
+
+        local waited = 0
+        while not finished and waited < timeout do
+            task.wait(0.05)
+            waited = waited + 0.05
+        end
+
+        return finished, succeeded
+    end
+
+    -- the proxy is sometimes nested deeper than SailPad's direct children
+    local function getClickProxy(base)
+        local sailPad = base and base:FindFirstChild("SailPad")
+        if not sailPad then return nil end
+        return sailPad:FindFirstChild("ClickProxy")
+            or sailPad:FindFirstChild("ClickProxy", true)
+    end
+
     elements:Toggle("Auto Fuel", section, setdata.fuel, function(v)
         env.SBFuel = v
         env.setconfig("fuel", v)
         if not v then return end
 
-        if not (getnilinstances or get_nil_instances or getnilobjects) then
-            warn("[BrainrotPolice] this executor has no getnilinstances, auto fuel cannot work")
+        if not nilInstances() then
+            warn("[BrainrotPolice] this executor has no getnilinstances, Auto Fuel cannot work")
             env.SBFuel = false
             return
         end
 
         task.spawn(function()
-            while env.SBFuel do
-                local fuels = getNilModels()
+            local announced = false
 
-                -- 1. collect every fuel, counting the ones the server accepted
+            while env.SBFuel do
+                local fuels = getFuelModels()
+
+                if not announced then
+                    print("[BrainrotPolice] Auto Fuel: " .. #fuels .. " nil models visible")
+                    announced = true
+                end
+
+                -- 1. collect. a model that is still nil after the call was not
+                --    a fuel, so it does not count toward the AddFuel total.
                 local collected = 0
                 local collect = collectFuel()
+
                 if collect then
                     for _, fuel in ipairs(fuels) do
                         if not env.SBFuel then break end
-                        local ok = pcall(function()
-                            collect:InvokeServer(fuel)
-                        end)
-                        if ok then
+
+                        local finished, ok = safeInvoke(collect, 1, fuel)
+
+                        if finished and ok then
                             collected = collected + 1
                         end
                     end
                 end
 
-                -- 2. feed the same amount into the boat
+                -- 2. load the boat, one call per fuel that went through
                 local base = getMyBase()
-                local sailPad = base and base:FindFirstChild("SailPad")
-                local clickProxy = sailPad and sailPad:FindFirstChild("ClickProxy")
+                local clickProxy = getClickProxy(base)
                 local add = addFuel()
 
-                if clickProxy and add then
-                    for _ = 1, math.max(collected, 1) do
+                if clickProxy and add and collected > 0 then
+                    for _ = 1, collected do
                         if not env.SBFuel then break end
-                        pcall(function()
-                            add:InvokeServer(clickProxy)
-                        end)
+                        safeInvoke(add, 1, clickProxy)
+                        task.wait(0.1)
                     end
                 end
 
