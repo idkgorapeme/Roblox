@@ -1,7 +1,7 @@
 -- DUMP
 
 return function(section, data)
-    local elements = loadstring(game:HttpGet(getgitpath("src").."elements.lua"))()
+    local elements = loadstring(getgenv().gitfetch and getgenv().gitfetch(getgitpath("src").."elements.lua") or game:HttpGet(getgitpath("src").."elements.lua"))()
 
     getgenv().AutoDig = false
     getgenv().AutoBuy = false

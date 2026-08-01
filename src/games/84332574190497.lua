@@ -2,7 +2,7 @@
 -- Developed by wirlypirly12
 
 return (function(section, data)
-    local elements = loadstring(game:HttpGet(getgitpath("src").."elements.lua"))()
+    local elements = loadstring(getgenv().gitfetch and getgenv().gitfetch(getgitpath("src").."elements.lua") or game:HttpGet(getgitpath("src").."elements.lua"))()
 
     local setdata = data[tostring(game.PlaceId)] or {}
     setdata.farmrots = setdata.farmrots or false

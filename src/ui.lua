@@ -265,11 +265,11 @@ end
 
 
 local ok, gamePath = pcall(function()
-    return game:HttpGet(getgitpath("games") .. tostring(game.PlaceId) .. ".lua")
+    return getgenv().gitfetch(getgitpath("games") .. tostring(game.PlaceId) .. ".lua")
 end)
-local gameList = httpservice:JSONDecode(game:HttpGet(getgitpath("src").. "gameslist.json"))
-local creditsList = httpservice:JSONDecode(game:HttpGet(getgitpath("src").. "credits.json"))
-local elements = loadstring(game:HttpGet(getgitpath("src").."elements.lua"))()
+local gameList = httpservice:JSONDecode(getgenv().gitfetch(getgitpath("src").. "gameslist.json"))
+local creditsList = httpservice:JSONDecode(getgenv().gitfetch(getgitpath("src").. "credits.json"))
+local elements = loadstring(getgenv().gitfetch(getgitpath("src").."elements.lua"))()
 if not ok or #gamePath == 0 or gamePath == "404: Not Found" then
     local handledLocally = false
 

@@ -1,7 +1,7 @@
 -- pole obby for brainrots
 
 return function(section, data)
-    local elements = loadstring(game:HttpGet(getgitpath("src").."elements.lua"))()
+    local elements = loadstring(getgenv().gitfetch and getgenv().gitfetch(getgitpath("src").."elements.lua") or game:HttpGet(getgitpath("src").."elements.lua"))()
 
     getgenv().farming = false
     local plr = game:GetService("Players").LocalPlayer

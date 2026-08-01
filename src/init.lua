@@ -42,6 +42,13 @@ function env.getgitpath(where)
     end
 end
 
+-- raw.githubusercontent caches for several minutes, so a fresh push can keep
+-- serving the old file. append a unique query string to bust the cache.
+function env.gitfetch(url)
+    local sep = string.find(url, "?", 1, true) and "&" or "?"
+    return game:HttpGet(url .. sep .. "bp=" .. tostring(tick()) .. "_" .. tostring(math.random(1, 1e6)))
+end
+
 function env.setconfig(key, value)
     local httpservice = game:GetService("HttpService")
     local dec = httpservice:JSONDecode(readfile("BrainrotPolice/Config.json"))
@@ -124,7 +131,7 @@ function env.BrainrotPolice.unload()
     env.BrainrotPolice = nil
 end
 
-loadstring(game:HttpGet(getgitpath("src").."ui.lua"))()
+loadstring(env.gitfetch(getgitpath("src").."ui.lua"))()
 
 if queue_on_teleport then
     queue_on_teleport('loadstring(game:HttpGet("https://raw.githubusercontent.com/idkgorapeme/Roblox/refs/heads/arena/019f9f73-roblox/src/init.lua"))()')
