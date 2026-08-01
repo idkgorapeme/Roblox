@@ -192,6 +192,51 @@ return function(section, data)
         return out
     end
 
+    -- prints what the script can actually see, so we can tell whether the
+    -- base, the folder or the teleport is the thing that is broken
+    elements:Button("Debug Nukes", section, function()
+        local bases = workspace:FindFirstChild("Bases")
+        print("[BrainrotPolice] workspace.Bases exists:", bases ~= nil)
+
+        if bases then
+            local names = {}
+            for _, b in pairs(bases:GetChildren()) do
+                names[#names + 1] = b.Name
+            end
+            print("[BrainrotPolice] bases:", table.concat(names, ", "))
+        end
+
+        local base = getMyBase()
+        print("[BrainrotPolice] detected base:", base and base:GetFullName() or "NONE")
+
+        if base then
+            local kids = {}
+            for _, c in pairs(base:GetChildren()) do
+                kids[#kids + 1] = c.ClassName .. ":" .. c.Name
+            end
+            print("[BrainrotPolice] base children:", table.concat(kids, ", "))
+        end
+
+        local rockets = getRockets()
+        print("[BrainrotPolice] rockets found:", #rockets)
+
+        for i, r in ipairs(rockets) do
+            if i > 3 then break end
+            local pp = r.PrimaryPart
+            local anyPart = pp or r:FindFirstChildWhichIsA("BasePart", true)
+            print(("  rocket %d: %s | parent=%s | primary=%s | anchored=%s"):format(
+                i,
+                r:GetFullName(),
+                tostring(r.Parent and r.Parent.Name),
+                tostring(pp and pp.Name),
+                tostring(anyPart and anyPart.Anchored)
+            ))
+        end
+
+        local root = getRoot()
+        print("[BrainrotPolice] your root:", root and tostring(root.Position) or "NO CHARACTER")
+    end)
+
     elements:Toggle("Auto Merge", section, setdata.merge, function(v)
         env.MNMerge = v
         env.setconfig("merge", v)
@@ -208,10 +253,12 @@ return function(section, data)
 
                     if not announced then
                         print("[BrainrotPolice] Auto Merge: " .. #rockets .. " rockets pulled")
+                        if #rockets == 0 then
+                            warn("[BrainrotPolice] no rockets found, press Debug Nukes")
+                        end
                         announced = true
                     end
 
-                    -- 3 studs in front of the player, stacked slightly apart
                     for i, rocket in ipairs(rockets) do
                         if not env.MNMerge then break end
 
@@ -221,21 +268,31 @@ return function(section, data)
                                 rocket.Parent = workspace
                             end
 
-                            local offset = CFrame.new(0, 0, -3)
-                            rocket:PivotTo(root.CFrame * offset)
-
-                            -- kill any velocity so they do not drift away
+                            -- anchor first, otherwise physics drags them back
+                            -- the moment we let go
                             for _, part in pairs(rocket:GetDescendants()) do
                                 if part:IsA("BasePart") then
+                                    part.Anchored = true
                                     part.AssemblyLinearVelocity = Vector3.zero
                                     part.AssemblyAngularVelocity = Vector3.zero
                                 end
                             end
+
+                            -- spread them in a ring in front of the player so
+                            -- they do not all occupy the exact same stud
+                            local angle = (i / math.max(#rockets, 1)) * math.pi * 2
+                            local offset = CFrame.new(
+                                math.cos(angle) * 4,
+                                0,
+                                -6 + math.sin(angle) * 4
+                            )
+
+                            rocket:PivotTo(root.CFrame * offset)
                         end)
                     end
                 end
 
-                task.wait(0.05)
+                task.wait(0.1)
             end
         end)
     end)
