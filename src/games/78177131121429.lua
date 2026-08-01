@@ -19,52 +19,91 @@ return function(section, data)
 
     elements:Label("No features yet, dump the game first", section)
 
-    -- Prints the top level structure of the game so we can see what to hook.
-    -- Run this in game, then send the console output over.
-    elements:Button("Dump Game Structure", section, function()
-        print("======== workspace ========")
+    -- Collects the game structure, copies it to the clipboard and also writes
+    -- it to a file in case the executor has no setclipboard.
+    elements:Button("Dump Game Structure (copies)", section, function()
+        local out = {}
+        local function add(...)
+            local parts = {}
+            for _, v in ipairs({...}) do
+                parts[#parts + 1] = tostring(v)
+            end
+            out[#out + 1] = table.concat(parts, " ")
+        end
+
+        add("PlaceId:", game.PlaceId)
+        add("JobId:", game.JobId)
+
+        add("")
+        add("======== workspace ========")
         for _, child in pairs(workspace:GetChildren()) do
-            print(child.ClassName, "|", child.Name)
+            add(child.ClassName, "|", child.Name)
         end
 
-        print("======== ReplicatedStorage ========")
+        add("")
+        add("======== ReplicatedStorage ========")
         for _, child in pairs(replicatedstorage:GetChildren()) do
-            print(child.ClassName, "|", child.Name)
+            add(child.ClassName, "|", child.Name)
         end
 
-        local remotes = replicatedstorage:FindFirstChild("Remotes")
-            or replicatedstorage:FindFirstChild("Events")
-            or replicatedstorage:FindFirstChild("Network")
-
-        if remotes then
-            print("======== remote folder:", remotes.Name, "========")
-            for _, r in pairs(remotes:GetDescendants()) do
-                if r:IsA("RemoteEvent") or r:IsA("RemoteFunction") then
-                    print(r.ClassName, "|", r:GetFullName())
+        add("")
+        add("======== remotes ========")
+        local n = 0
+        for _, r in pairs(replicatedstorage:GetDescendants()) do
+            if r:IsA("RemoteEvent") or r:IsA("RemoteFunction") then
+                n = n + 1
+                if n <= 200 then
+                    add(r.ClassName, "|", r:GetFullName())
                 end
             end
-        else
-            print("no obvious remote folder, scanning ReplicatedStorage")
-            local n = 0
-            for _, r in pairs(replicatedstorage:GetDescendants()) do
-                if r:IsA("RemoteEvent") or r:IsA("RemoteFunction") then
-                    n = n + 1
-                    if n <= 60 then
-                        print(r.ClassName, "|", r:GetFullName())
-                    end
-                end
-            end
-            print("total remotes found:", n)
         end
+        add("total remotes:", n)
 
-        print("======== leaderstats ========")
+        add("")
+        add("======== leaderstats ========")
         local ls = plr:FindFirstChild("leaderstats")
         if ls then
             for _, stat in pairs(ls:GetChildren()) do
-                print(stat.Name, "=", stat.Value)
+                add(stat.Name, "=", tostring(stat.Value))
             end
         else
-            print("no leaderstats")
+            add("no leaderstats")
+        end
+
+        add("")
+        add("======== player attributes ========")
+        local attrs = plr:GetAttributes()
+        if next(attrs) == nil then
+            add("none")
+        else
+            for k, v in pairs(attrs) do
+                add(k, "=", tostring(v))
+            end
+        end
+
+        local text = table.concat(out, "\n")
+
+        -- always print so it is visible in the console too
+        print(text)
+
+        -- save a copy on disk, the clipboard can silently fail or get overwritten
+        local path = "BrainrotPolice/dump_" .. tostring(game.PlaceId) .. ".txt"
+        local savedOk = pcall(function()
+            writefile(path, text)
+        end)
+
+        local copiedOk = pcall(function()
+            setclipboard(text)
+        end)
+
+        if copiedOk then
+            print("[BrainrotPolice] dump copied to clipboard (" .. #text .. " chars)")
+        else
+            warn("[BrainrotPolice] setclipboard not available")
+        end
+
+        if savedOk then
+            print("[BrainrotPolice] dump also saved to " .. path)
         end
     end)
 
