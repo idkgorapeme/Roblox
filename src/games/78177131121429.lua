@@ -20,13 +20,13 @@ return function(section, data)
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
-    local network = replicatedstorage:WaitForChild("Network")
-    local remoteEvents = network:WaitForChild("RemoteEvents")
+    local network = replicatedstorage:WaitForChild("Network", 10)
+    local remoteEvents = network:WaitForChild("RemoteEvents", 10)
 
-    local collectCash = remoteEvents:WaitForChild("RequestCollectCash")
-    local incrementSpeed = remoteEvents:WaitForChild("IncrementSpeed")
-    local incrementStrength = remoteEvents:WaitForChild("IncrementStrength")
-    local rebirthEvent = remoteEvents:WaitForChild("Rebirth")
+    local collectCash = remoteEvents:WaitForChild("RequestCollectCash", 10)
+    local incrementSpeed = remoteEvents:WaitForChild("IncrementSpeed", 10)
+    local incrementStrength = remoteEvents:WaitForChild("IncrementStrength", 10)
+    local rebirthEvent = remoteEvents:WaitForChild("Rebirth", 10)
 
     local SLOT_COUNT = 30
 
@@ -141,7 +141,7 @@ return function(section, data)
                         local slot = slots:FindFirstChild(tostring(i))
                         local money = slot and slot:FindFirstChild("Money")
 
-                        if money then
+                        if money and collectCash then
                             pcall(function()
                                 collectCash:FireServer(money)
                             end)
@@ -168,7 +168,7 @@ return function(section, data)
         task.spawn(function()
             while env.DBUpgrade do
                 pcall(function()
-                    incrementStrength:FireServer(10)
+                    if incrementStrength then incrementStrength:FireServer(10) end
                 end)
 
                 task.wait(0.5)
@@ -180,7 +180,7 @@ return function(section, data)
         task.spawn(function()
             while env.DBUpgrade do
                 pcall(function()
-                    incrementSpeed:FireServer(1)
+                    if incrementSpeed then incrementSpeed:FireServer(1) end
                 end)
 
                 -- sleep in short steps so toggling off stops it quickly
@@ -204,7 +204,7 @@ return function(section, data)
         task.spawn(function()
             while env.DBRebirth do
                 pcall(function()
-                    rebirthEvent:FireServer()
+                    if rebirthEvent then rebirthEvent:FireServer() end
                 end)
 
                 task.wait(1)

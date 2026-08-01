@@ -20,23 +20,38 @@ return function(section, data)
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
-    -- knit service path
-    local packages = replicatedstorage:WaitForChild("Packages")
-    local index = packages:WaitForChild("_Index")
-    local knitPkg = index:WaitForChild("sleitnick_knit@1.7.0")
-    local knit = knitPkg:WaitForChild("knit")
-    local services = knit:WaitForChild("Services")
-    local fuelService = services:WaitForChild("FuelService")
-    local fuelRF = fuelService:WaitForChild("RF")
-    local manualTick = fuelRF:WaitForChild("ManualTick")
+    -- Knit service lookup.
+    -- IMPORTANT: this must never use a blocking WaitForChild at module scope.
+    -- If one service name does not match, WaitForChild hangs forever and every
+    -- toggle below it is never created, which is why only the first one showed.
+    local function knitRemote(serviceName, remoteName)
+        local node = replicatedstorage:FindFirstChild("Packages")
+        node = node and node:FindFirstChild("_Index")
+        if not node then return nil end
 
-    local fuelPlaceService = services:WaitForChild("FuelPlaceService")
-    local fuelPlaceRF = fuelPlaceService:WaitForChild("RF")
-    local levelUp = fuelPlaceRF:WaitForChild("LevelUp")
+        -- the knit version can change, so match on the prefix instead of pinning
+        local knitPkg = node:FindFirstChild("sleitnick_knit@1.7.0")
+        if not knitPkg then
+            for _, child in pairs(node:GetChildren()) do
+                if string.sub(child.Name, 1, 15) == "sleitnick_knit@" then
+                    knitPkg = child
+                    break
+                end
+            end
+        end
+        if not knitPkg then return nil end
 
-    local boatService = services:WaitForChild("BoatService")
-    local boatRF = boatService:WaitForChild("RF")
-    local launch = boatRF:WaitForChild("Launch")
+        local knit = knitPkg:FindFirstChild("knit")
+        local services = knit and knit:FindFirstChild("Services")
+        local service = services and services:FindFirstChild(serviceName)
+        local rf = service and service:FindFirstChild("RF")
+        return rf and rf:FindFirstChild(remoteName) or nil
+    end
+
+    -- resolved on first use so a missing service can never block the UI
+    local function manualTick() return knitRemote("FuelService", "ManualTick") end
+    local function levelUp() return knitRemote("FuelPlaceService", "LevelUp") end
+    local function launch() return knitRemote("BoatService", "Launch") end
 
     -- manual override, leave empty to auto detect
     local baseOverride = tostring(setdata.basename or "")
@@ -148,7 +163,8 @@ return function(section, data)
                         if not env.SBPump then break end
 
                         pcall(function()
-                            manualTick:InvokeServer(place)
+                            local rf = manualTick()
+                            if rf then rf:InvokeServer(place) end
                         end)
                     end
                 end
@@ -178,7 +194,8 @@ return function(section, data)
                         if not env.SBUpgrade then break end
 
                         pcall(function()
-                            levelUp:InvokeServer(place, 1)
+                            local rf = levelUp()
+                            if rf then rf:InvokeServer(place, 1) end
                         end)
                     end
                 end
@@ -204,7 +221,8 @@ return function(section, data)
 
                 if sailPad then
                     pcall(function()
-                        launch:InvokeServer(sailPad)
+                        local rf = launch()
+                        if rf then rf:InvokeServer(sailPad) end
                     end)
                 end
 

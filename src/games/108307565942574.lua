@@ -20,9 +20,9 @@ return function(section, data)
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
-    local remotes = replicatedstorage:WaitForChild("Remotes")
-    local prestigeRequested = remotes:WaitForChild("PrestigeRequested")
-    local reportClickAttack = remotes:WaitForChild("ReportClickAttack")
+    local remotes = replicatedstorage:WaitForChild("Remotes", 10)
+    local prestigeRequested = remotes:WaitForChild("PrestigeRequested", 10)
+    local reportClickAttack = remotes:WaitForChild("ReportClickAttack", 10)
 
     local zone = tostring(setdata.zone)
 

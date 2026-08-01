@@ -8,10 +8,10 @@ return function(section, data)
     local replicatedstorage = game:GetService("ReplicatedStorage")
     local plr = players.LocalPlayer
 
-    local remotes = replicatedstorage:WaitForChild("Remotes")
-    local gameStateUpdate = remotes:WaitForChild("GameStateUpdate")
-    local requestShowAd = remotes:WaitForChild("RequestShowAdEvent")
-    local adAnalytics = remotes:WaitForChild("AdAnalytics")
+    local remotes = replicatedstorage:WaitForChild("Remotes", 10)
+    local gameStateUpdate = remotes:WaitForChild("GameStateUpdate", 10)
+    local requestShowAd = remotes:WaitForChild("RequestShowAdEvent", 10)
+    local adAnalytics = remotes:WaitForChild("AdAnalytics", 10)
 
     -- where Auto Complete drops you when a round starts
     local FINISH_POS = Vector3.new(-12200, -790, -2984)
