@@ -16,7 +16,7 @@ return function(section, data)
     setdata.autoprestige = setdata.autoprestige or false
     setdata.autoclick = setdata.autoclick or false
     setdata.zone = setdata.zone or "Forest"
-    setdata.attackinterval = setdata.attackinterval or 0.25
+    setdata.maxremotes = setdata.maxremotes or 200
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
@@ -30,9 +30,9 @@ return function(section, data)
     -- auto click attack
     ----------------------------------------------------------------
 
-    -- seconds between attack sweeps. firing every frame floods the remote
-    -- and lags the game out, 0.25s is plenty for a click based game.
-    local attackInterval = tonumber(setdata.attackinterval) or 0.25
+    -- hard ceiling on how many ReportClickAttack calls we send per second.
+    -- the game lags badly above this, so the sender is rate limited below.
+    local MAX_REMOTES_PER_SEC = tonumber(setdata.maxremotes) or 200
 
     -- enemies can be models, parts or a folder wrapping either
     local function enemyPosition(enemy)
@@ -203,11 +203,11 @@ return function(section, data)
         return targets, count
     end
 
-    elements:Textbox("Attack Interval (default 0.25)", section, tostring(attackInterval), function(v)
+    elements:Textbox("Max Remotes / sec (default 200)", section, tostring(MAX_REMOTES_PER_SEC), function(v)
         local n = tonumber(v)
-        if not n or n < 0.05 then return end
-        attackInterval = n
-        env.setconfig("attackinterval", n)
+        if not n or n < 1 then return end
+        MAX_REMOTES_PER_SEC = math.floor(n)
+        env.setconfig("maxremotes", MAX_REMOTES_PER_SEC)
     end)
 
     elements:Toggle("Auto Click Attack", section, setdata.autoclick, function(v)
@@ -223,23 +223,64 @@ return function(section, data)
         end
 
         task.spawn(function()
+            -- exact sliding window limiter: we remember the timestamp of the last
+            -- MAX_REMOTES_PER_SEC sends. before sending we check the oldest one,
+            -- if it is younger than 1s we wait until it ages out. this guarantees
+            -- we never exceed the cap in ANY one second window (a token bucket
+            -- starting full would allow a double burst on the first second).
+            local ring = {}
+            local ringSize = MAX_REMOTES_PER_SEC
+            local ringIdx = 1
+
+            for i = 1, ringSize do
+                ring[i] = -1e9
+            end
+
+            local function rateLimitedFire(id, pos)
+                -- the cap can be changed at runtime, resize if needed
+                if ringSize ~= MAX_REMOTES_PER_SEC then
+                    ringSize = MAX_REMOTES_PER_SEC
+                    ring = {}
+                    for i = 1, ringSize do
+                        ring[i] = -1e9
+                    end
+                    ringIdx = 1
+                end
+
+                local oldest = ring[ringIdx]
+                local waitFor = 1 - (os.clock() - oldest)
+
+                if waitFor > 0 then
+                    task.wait(waitFor)
+                end
+
+                if not env.AutoClickAttack then return false end
+
+                ring[ringIdx] = os.clock()
+                ringIdx = ringIdx % ringSize + 1
+
+                pcall(function()
+                    reportClickAttack:FireServer(zone, id, pos)
+                end)
+
+                return true
+            end
+
             while env.AutoClickAttack do
                 local targets, count = collectTargets()
 
                 if targets and count > 0 then
-                    -- one remote per LIVING enemy, nothing wasted on empty ids,
-                    -- and fired sequentially instead of 10 threads per frame
                     for id, pos in pairs(targets) do
                         if not env.AutoClickAttack then break end
-
-                        pcall(function()
-                            reportClickAttack:FireServer(zone, id, pos)
-                        end)
+                        if not rateLimitedFire(id, pos) then break end
                     end
+                else
+                    -- nothing to hit, idle cheaply
+                    task.wait(0.2)
                 end
 
-                -- fixed rate instead of every frame, this is what caused the lag
-                task.wait(attackInterval)
+                -- always yield so we never hog a frame
+                task.wait()
             end
         end)
     end)
