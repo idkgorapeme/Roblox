@@ -18,6 +18,14 @@ return function(section, data)
     local mainFunction = game:GetService("ReplicatedStorage").Paper.Remotes.__remotefunction
     local buyBtns = workspace.Plots[plr.Name].Buttons.BuyChickens
 
+    -- workspace.Plots.<you>.Buttons.UpgradeBuyTier
+    local function getTierBtn()
+        local plots = workspace:FindFirstChild("Plots")
+        local plot = plots and plots:FindFirstChild(plr.Name)
+        local buttons = plot and plot:FindFirstChild("Buttons")
+        return buttons and buttons:FindFirstChild("UpgradeBuyTier") or nil
+    end
+
     local addedCon
 
     local suffixes = {
@@ -124,6 +132,24 @@ return function(section, data)
             mainFunction:InvokeServer(
                 "Merge Chickens"
             )
+            task.wait()
+
+            -- upgrade the buy tier once we can actually afford it
+            pcall(function()
+                local tierBtn = getTierBtn()
+                if not tierBtn then return end
+
+                local costLabel = tierBtn:FindFirstChild("Cost", true)
+                local cost = costLabel and parseSuffixedNumber(costLabel.Text)
+
+                -- if the cost label is unreadable just try anyway
+                if not cost or cost <= parseSuffixedNumber(cashval.Text) then
+                    mainFunction:InvokeServer(
+                        "Upgrade Buy Tier Level"
+                    )
+                end
+            end)
+
             task.wait(1)
         end
     end)
