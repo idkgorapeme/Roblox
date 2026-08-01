@@ -174,17 +174,30 @@ return function(section, data)
         env.setconfig("upgrade", v)
         if not v then return end
 
+        -- strength keeps the fast cadence
+        task.spawn(function()
+            while env.DBUpgrade do
+                pcall(function()
+                    incrementStrength:FireServer(10)
+                end)
+
+                task.wait(0.5)
+            end
+        end)
+
+        -- speed only every 10 seconds, on its own thread so it does not
+        -- hold up the strength loop
         task.spawn(function()
             while env.DBUpgrade do
                 pcall(function()
                     incrementSpeed:FireServer(1)
                 end)
 
-                pcall(function()
-                    incrementStrength:FireServer(10)
-                end)
-
-                task.wait(0.5)
+                -- sleep in short steps so toggling off stops it quickly
+                for _ = 1, 100 do
+                    if not env.DBUpgrade then return end
+                    task.wait(0.1)
+                end
             end
         end)
     end)
