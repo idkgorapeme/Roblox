@@ -14,6 +14,13 @@ return function(section, data)
     env.DBDrill = false
     env.DBPickup = false
     env.DBSpy = false
+    env.DBSpin = false
+    env.DBLucky = false
+    env.DBWorldCup = false
+    env.DBTpBase = false
+    env.DBDaily = false
+    env.DBPlaytime = false
+    env.DBOffline = false
 
     local setdata = data[tostring(game.PlaceId)] or {}
     setdata.collect = setdata.collect or false
@@ -21,6 +28,13 @@ return function(section, data)
     setdata.rebirth = setdata.rebirth or false
     setdata.drill = setdata.drill or false
     setdata.pickup = setdata.pickup or false
+    setdata.spin = setdata.spin or false
+    setdata.lucky = setdata.lucky or false
+    setdata.worldcup = setdata.worldcup or false
+    setdata.tpbase = setdata.tpbase or false
+    setdata.daily = setdata.daily or false
+    setdata.playtime = setdata.playtime or false
+    setdata.offline = setdata.offline or false
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
@@ -178,7 +192,7 @@ return function(section, data)
     end)
 
     ----------------------------------------------------------------
-    -- one shot actions
+    -- one shot actions, available as a button and as a loop
     ----------------------------------------------------------------
 
     elements:Button("Spin Wheel", section, function()
@@ -186,14 +200,77 @@ return function(section, data)
         if ev then pcall(function() ev:FireServer() end) end
     end)
 
+    elements:Toggle("Auto Spin Wheel", section, setdata.spin, function(v)
+        env.DBSpin = v
+        env.setconfig("spin", v)
+        if not v then return end
+        task.spawn(function()
+            simpleLoop("DBSpin", "SpinWheel", 5)
+        end)
+    end)
+
     elements:Button("Open Lucky Block", section, function()
         local ev = remote("RequestOpenLuckyBlock")
         if ev then pcall(function() ev:FireServer() end) end
     end)
 
+    elements:Toggle("Auto Lucky Block", section, setdata.lucky, function(v)
+        env.DBLucky = v
+        env.setconfig("lucky", v)
+        if not v then return end
+        task.spawn(function()
+            simpleLoop("DBLucky", "RequestOpenLuckyBlock", 2)
+        end)
+    end)
+
     elements:Button("Claim World Cup Quest", section, function()
         local ev = remote("ClaimWorldCupQuest")
         if ev then pcall(function() ev:FireServer() end) end
+    end)
+
+    elements:Toggle("Auto World Cup Quest", section, setdata.worldcup, function(v)
+        env.DBWorldCup = v
+        env.setconfig("worldcup", v)
+        if not v then return end
+        task.spawn(function()
+            simpleLoop("DBWorldCup", "ClaimWorldCupQuest", 5)
+        end)
+    end)
+
+    elements:Toggle("Auto Teleport To Base", section, setdata.tpbase, function(v)
+        env.DBTpBase = v
+        env.setconfig("tpbase", v)
+        if not v then return end
+        task.spawn(function()
+            simpleLoop("DBTpBase", "TeleportToBase", 10)
+        end)
+    end)
+
+    elements:Toggle("Auto Claim Daily Rewards", section, setdata.daily, function(v)
+        env.DBDaily = v
+        env.setconfig("daily", v)
+        if not v then return end
+        task.spawn(function()
+            simpleLoop("DBDaily", "DailyRewards", 30)
+        end)
+    end)
+
+    elements:Toggle("Auto Playtime Unlock", section, setdata.playtime, function(v)
+        env.DBPlaytime = v
+        env.setconfig("playtime", v)
+        if not v then return end
+        task.spawn(function()
+            simpleLoop("DBPlaytime", "PlaytimeUnlock", 15)
+        end)
+    end)
+
+    elements:Toggle("Auto Offline Earnings", section, setdata.offline, function(v)
+        env.DBOffline = v
+        env.setconfig("offline", v)
+        if not v then return end
+        task.spawn(function()
+            simpleLoop("DBOffline", "OfflineEarnings", 20)
+        end)
     end)
 
     ----------------------------------------------------------------
