@@ -225,6 +225,41 @@ Sections.Home.Container.execLabel.Text = "Executor: " .. getexec()
 Sections.Home.Container.versionLabel.Text = "Version: 0.33 BETA"
 Sections.Home.Container.execLabel.Text = Sections.Home.Container.execLabel.Text .. "  |  PlaceId: " .. tostring(game.PlaceId)
 
+-- copy the place id straight from the home tab
+do
+    local copyBtn = Instance.new("TextButton")
+    copyBtn.Name = "copyplaceid"
+    copyBtn.Size = UDim2.new(0, 110, 0, 22)
+    copyBtn.AnchorPoint = Vector2.new(1, 0.5)
+    copyBtn.Position = UDim2.new(1, -8, 0.5, 0)
+    copyBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
+    copyBtn.BorderSizePixel = 0
+    copyBtn.Text = "Copy PlaceId"
+    copyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    copyBtn.TextSize = 12
+    copyBtn.Font = Enum.Font.GothamBold
+    copyBtn.AutoButtonColor = true
+    copyBtn.ZIndex = 10
+    copyBtn.Parent = Sections.Home.Container.execLabel
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 4)
+    corner.Parent = copyBtn
+
+    track(copyBtn.MouseButton1Click:Connect(function()
+        local ok = pcall(function()
+            setclipboard(tostring(game.PlaceId))
+        end)
+
+        copyBtn.Text = ok and "Copied!" or "No clipboard"
+        task.delay(1, function()
+            if copyBtn and copyBtn.Parent then
+                copyBtn.Text = "Copy PlaceId"
+            end
+        end)
+    end))
+end
+
 
 local ok, gamePath = pcall(function()
     return game:HttpGet(getgitpath("games") .. tostring(game.PlaceId) .. ".lua")
