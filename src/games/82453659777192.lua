@@ -56,6 +56,33 @@ return function(section, data)
     local function launch() return knitRemote("BoatService", "Launch") end
     local function collectFuel() return knitRemote("FuelService", "CollectFuel") end
     local function addFuel() return knitRemote("BoatService", "AddFuel") end
+    local function buyUpgrade() return knitRemote("FuelPlaceService", "BuyUpgrade") end
+
+    -- InvokeServer with a watchdog so a non responding call cannot freeze us
+    local function safeInvoke(rf, timeout, ...)
+        local args = table.pack(...)
+        local finished, succeeded = false, false
+
+        task.spawn(function()
+            local ok = pcall(function()
+                rf:InvokeServer(table.unpack(args, 1, args.n))
+            end)
+            succeeded = ok
+            finished = true
+        end)
+
+        local waited = 0
+        while not finished and waited < timeout do
+            task.wait(0.05)
+            waited = waited + 0.05
+        end
+
+        return finished, succeeded
+    end
+
+
+    -- how many upgrade slots each fuel place can have
+    local UPGRADE_SLOTS = 5
 
     -- manual override, leave empty to auto detect
     local baseOverride = tostring(setdata.basename or "")
@@ -193,14 +220,26 @@ return function(section, data)
                 local fuelPlaces = base and base:FindFirstChild("FuelPlaces")
 
                 if fuelPlaces then
-                    -- level up every fuel place, not just the first one
+                    local lvl = levelUp()
+                    local buy = buyUpgrade()
+
+                    -- run both on every fuel place, not just the first one
                     for _, place in pairs(fuelPlaces:GetChildren()) do
                         if not env.SBUpgrade then break end
 
-                        pcall(function()
-                            local rf = levelUp()
-                            if rf then rf:InvokeServer(place, 1) end
-                        end)
+                        if lvl then
+                            safeInvoke(lvl, 1, place, 1)
+                        end
+
+                        if not env.SBUpgrade then break end
+
+                        -- buy every upgrade slot this place offers
+                        if buy then
+                            for slot = 1, UPGRADE_SLOTS do
+                                if not env.SBUpgrade then break end
+                                safeInvoke(buy, 1, place, slot)
+                            end
+                        end
                     end
                 end
 
@@ -275,28 +314,6 @@ return function(section, data)
         end
 
         return out
-    end
-
-    -- InvokeServer with a watchdog so a non responding call cannot freeze us
-    local function safeInvoke(rf, timeout, ...)
-        local args = table.pack(...)
-        local finished, succeeded = false, false
-
-        task.spawn(function()
-            local ok = pcall(function()
-                rf:InvokeServer(table.unpack(args, 1, args.n))
-            end)
-            succeeded = ok
-            finished = true
-        end)
-
-        local waited = 0
-        while not finished and waited < timeout do
-            task.wait(0.05)
-            waited = waited + 0.05
-        end
-
-        return finished, succeeded
     end
 
     -- the proxy is sometimes nested deeper than SailPad's direct children
