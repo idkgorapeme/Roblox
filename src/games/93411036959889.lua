@@ -11,16 +11,20 @@ return function(section, data)
     env.KEWin1 = false
     env.KEWin2 = false
     env.KEDestroy = false
+    env.KECoins = false
 
     local setdata = data[tostring(game.PlaceId)] or {}
     setdata.win1 = setdata.win1 or false
     setdata.win2 = setdata.win2 or false
     setdata.destroy3 = setdata.destroy3 or false
+    setdata.coins = setdata.coins or false
+    setdata.coindelay = setdata.coindelay or 0.25
     setdata.flyspeed = setdata.flyspeed or 120
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
     local flySpeed = tonumber(setdata.flyspeed) or 120
+    local coinDelay = tonumber(setdata.coindelay) or 0.25
 
     local function getRoot()
         local char = plr.Character
@@ -299,6 +303,108 @@ return function(section, data)
                     local monster = workspace:FindFirstChild("NPC_LolMonster")
                     if monster then monster:Destroy() end
                 end)
+
+                task.wait(0.5)
+            end
+        end)
+    end)
+
+    ----------------------------------------------------------------
+    -- summer coins
+    ----------------------------------------------------------------
+
+    -- waits for a living character and returns its root.
+    -- this is what makes the farm survive dying: the old code grabbed the
+    -- HumanoidRootPart once, and that reference is dead after a respawn.
+    local function waitForRoot(keepAlive)
+        while keepAlive() do
+            local char = plr.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+
+            if root and root.Parent and hum and hum.Health > 0 then
+                return root
+            end
+
+            task.wait(0.25)
+        end
+
+        return nil
+    end
+
+    local function collectCoinTargets()
+        local out = {}
+        local folder = workspace:FindFirstChild("SummerCoinsLocal")
+        if not folder then return out end
+
+        for _, item in ipairs(folder:GetDescendants()) do
+            if string.find(string.lower(item.Name), "coin") then
+                if item:IsA("BasePart") then
+                    out[#out + 1] = item
+                elseif item:IsA("Model") then
+                    local part = item.PrimaryPart
+                        or item:FindFirstChildWhichIsA("BasePart", true)
+                    if part then
+                        out[#out + 1] = item
+                    end
+                end
+            end
+        end
+
+        return out
+    end
+
+    elements:Textbox("Coin Delay (default 0.25)", section, tostring(coinDelay), function(v)
+        local n = tonumber(v)
+        if not n or n < 0 then return end
+        coinDelay = n
+        env.setconfig("coindelay", n)
+    end)
+
+    elements:Toggle("Summer Coins", section, setdata.coins, function(v)
+        env.KECoins = v
+        env.setconfig("coins", v)
+        if not v then return end
+
+        task.spawn(function()
+            local alive = function() return env.KECoins end
+            local warned = false
+
+            while env.KECoins do
+                local targets = collectCoinTargets()
+
+                if #targets == 0 then
+                    if not warned then
+                        warn("[BrainrotPolice] workspace.SummerCoinsLocal has no coins")
+                        warned = true
+                    end
+                    task.wait(1)
+                else
+                    warned = false
+
+                    for _, target in ipairs(targets) do
+                        if not env.KECoins then break end
+
+                        -- re-acquire every coin, so dying just pauses us
+                        -- until the respawn instead of ending the run
+                        local root = waitForRoot(alive)
+                        if not root then break end
+
+                        -- the coin may have been collected while we travelled
+                        if target and target.Parent then
+                            pcall(function()
+                                if target:IsA("BasePart") then
+                                    root.CFrame = target.CFrame + Vector3.new(0, 3, 0)
+                                else
+                                    root.CFrame = target:GetPivot() + Vector3.new(0, 3, 0)
+                                end
+                                root.AssemblyLinearVelocity = Vector3.zero
+                            end)
+                        end
+
+                        task.wait(coinDelay)
+                    end
+                end
 
                 task.wait(0.5)
             end
