@@ -135,6 +135,32 @@ return function(section, data)
         return false
     end
 
+    -- pins the character at a position for a while with collision restored,
+    -- used after landing so we do not sink through the block
+    local function holdAt(pos, duration, keepAlive)
+        stopNoclip()
+
+        local hum = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
+        if hum then hum.PlatformStand = false end
+
+        local elapsed = 0
+        while elapsed < duration and keepAlive() do
+            local root = getRoot()
+            if root and pos then
+                -- sit slightly above the block so we rest on top of it
+                root.CFrame = CFrame.new(pos + Vector3.new(0, 4, 0))
+                root.AssemblyLinearVelocity = Vector3.zero
+            end
+
+            task.wait(0.05)
+            elapsed = elapsed + 0.05
+        end
+
+        if keepAlive() then
+            startNoclip()
+        end
+    end
+
     -- flies to an instance looked up by path
     local function flyToPath(keepAlive, ...)
         return flyTo(posOf(resolve(...)), keepAlive)
@@ -212,6 +238,9 @@ return function(section, data)
                 flyTo(Vector3.new(-1492, -61, -540), alive)
                 if not env.KEWin2 then break end
 
+                flyTo(Vector3.new(-1455, -57, 76), alive)
+                if not env.KEWin2 then break end
+
                 for _, point in ipairs(win2Points) do
                     if not env.KEWin2 then break end
                     flyTo(point, alive)
@@ -222,7 +251,9 @@ return function(section, data)
                 flyToPath(alive, "Structure", "Stage6", "SAS", "WinBlock37")
                 if not env.KEWin2 then break end
 
-                task.wait(2)
+                -- landing: turn collision back on and hold the win block for
+                -- the 2s wait, otherwise noclip drops us straight through it
+                holdAt(posOf(resolve("Structure", "Stage6", "SAS", "WinBlock37")), 2, alive)
             end
 
             stopNoclip()
