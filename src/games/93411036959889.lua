@@ -260,36 +260,57 @@ return function(section, data)
                 holdAt(posOf(resolve("Structure", "Stage6", "SAS", "WinBlock37")), 2, alive)
                 if not env.KEWin2 then break end
 
-                -- reset so the run starts from spawn again
+                -- full respawn, not just a teleport back
                 stopNoclip()
+
+                local oldChar = plr.Character
+
                 pcall(function()
-                    local hum = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
+                    local hum = oldChar and oldChar:FindFirstChildOfClass("Humanoid")
                     if hum then
                         hum.PlatformStand = false
-                        hum.Health = 0
                     end
                 end)
 
-                -- wait for the respawn, then idle the rest of the 5 seconds
-                local waited = 0
-                while waited < 5 and env.KEWin2 do
-                    task.wait(0.1)
-                    waited = waited + 0.1
+                -- ask the game to respawn us. break joints is what actually
+                -- kills the rig, some games ignore Health = 0 alone.
+                pcall(function()
+                    if oldChar then
+                        local hum = oldChar:FindFirstChildOfClass("Humanoid")
+                        if hum then hum.Health = 0 end
+                        oldChar:BreakJoints()
+                    end
+                end)
+
+                -- wait for a genuinely NEW character instance, not the old one
+                local newChar
+                local waitedRespawn = 0
+                while waitedRespawn < 15 and env.KEWin2 do
+                    local c = plr.Character
+                    if c and c ~= oldChar then
+                        local hum = c:FindFirstChildOfClass("Humanoid")
+                        local root = c:FindFirstChild("HumanoidRootPart")
+                        if hum and root and hum.Health > 0 then
+                            newChar = c
+                            break
+                        end
+                    end
+
+                    task.wait(0.25)
+                    waitedRespawn = waitedRespawn + 0.25
                 end
 
                 if not env.KEWin2 then break end
 
-                -- make sure the new character is actually there before flying
-                local ready = 0
-                while ready < 10 and env.KEWin2 do
-                    local char = plr.Character
-                    local root = char and char:FindFirstChild("HumanoidRootPart")
-                    local hum = char and char:FindFirstChildOfClass("Humanoid")
-                    if root and root.Parent and hum and hum.Health > 0 then
-                        break
-                    end
-                    task.wait(0.25)
-                    ready = ready + 0.25
+                if not newChar then
+                    warn("[BrainrotPolice] respawn timed out, continuing anyway")
+                end
+
+                -- let the spawn settle, then wait the requested 5 seconds
+                local waited = 0
+                while waited < 5 and env.KEWin2 do
+                    task.wait(0.1)
+                    waited = waited + 0.1
                 end
 
                 if not env.KEWin2 then break end
