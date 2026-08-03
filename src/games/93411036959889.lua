@@ -258,6 +258,42 @@ return function(section, data)
                 -- landing: turn collision back on and hold the win block for
                 -- the 2s wait, otherwise noclip drops us straight through it
                 holdAt(posOf(resolve("Structure", "Stage6", "SAS", "WinBlock37")), 2, alive)
+                if not env.KEWin2 then break end
+
+                -- reset so the run starts from spawn again
+                stopNoclip()
+                pcall(function()
+                    local hum = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
+                    if hum then
+                        hum.PlatformStand = false
+                        hum.Health = 0
+                    end
+                end)
+
+                -- wait for the respawn, then idle the rest of the 5 seconds
+                local waited = 0
+                while waited < 5 and env.KEWin2 do
+                    task.wait(0.1)
+                    waited = waited + 0.1
+                end
+
+                if not env.KEWin2 then break end
+
+                -- make sure the new character is actually there before flying
+                local ready = 0
+                while ready < 10 and env.KEWin2 do
+                    local char = plr.Character
+                    local root = char and char:FindFirstChild("HumanoidRootPart")
+                    local hum = char and char:FindFirstChildOfClass("Humanoid")
+                    if root and root.Parent and hum and hum.Health > 0 then
+                        break
+                    end
+                    task.wait(0.25)
+                    ready = ready + 0.25
+                end
+
+                if not env.KEWin2 then break end
+                startNoclip()
             end
 
             stopNoclip()
