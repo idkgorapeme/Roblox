@@ -55,6 +55,52 @@ return function(section, data)
         return part and part.Position or nil
     end
 
+    ----------------------------------------------------------------
+    -- noclip, kept on for the whole flight so walls cannot stop us
+    ----------------------------------------------------------------
+
+    local noclipConn
+    local noclipUsers = 0
+
+    local function startNoclip()
+        noclipUsers = noclipUsers + 1
+        if noclipConn then return end
+
+        noclipConn = runservice.Stepped:Connect(function()
+            local char = plr.Character
+            if not char then return end
+
+            for _, part in pairs(char:GetDescendants()) do
+                if part:IsA("BasePart") and part.CanCollide then
+                    part.CanCollide = false
+                end
+            end
+        end)
+
+        if env.BrainrotPolice and env.BrainrotPolice.track then
+            env.BrainrotPolice.track(noclipConn)
+        end
+    end
+
+    local function stopNoclip()
+        noclipUsers = math.max(noclipUsers - 1, 0)
+        if noclipUsers > 0 then return end
+
+        if noclipConn then
+            noclipConn:Disconnect()
+            noclipConn = nil
+        end
+
+        local char = plr.Character
+        if char then
+            for _, part in pairs(char:GetDescendants()) do
+                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                    pcall(function() part.CanCollide = true end)
+                end
+            end
+        end
+    end
+
     -- smoothly flies to a position, returns true once we arrive.
     -- keepAlive lets the toggle interrupt the flight at any point.
     local function flyTo(targetPos, keepAlive)
@@ -78,6 +124,12 @@ return function(section, data)
 
             root.CFrame = CFrame.new(root.Position + delta.Unit * step)
             root.AssemblyLinearVelocity = Vector3.zero
+
+            -- gravity would drag us down between steps
+            local hum = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
+            if hum then
+                hum.PlatformStand = true
+            end
         end
 
         return false
@@ -106,6 +158,7 @@ return function(section, data)
 
         task.spawn(function()
             local alive = function() return env.KEWin1 end
+            startNoclip()
 
             while env.KEWin1 do
                 flyToPath(alive, "Boards&Gamepass", "WinsLeaderboard")
@@ -116,6 +169,10 @@ return function(section, data)
 
                 task.wait(1)
             end
+
+            stopNoclip()
+            local hum = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
+            if hum then hum.PlatformStand = false end
         end)
     end)
 
@@ -146,6 +203,7 @@ return function(section, data)
 
         task.spawn(function()
             local alive = function() return env.KEWin2 end
+            startNoclip()
 
             while env.KEWin2 do
                 flyToPath(alive, "Boards&Gamepass", "WinsLeaderboard")
@@ -169,6 +227,10 @@ return function(section, data)
 
                 task.wait(2)
             end
+
+            stopNoclip()
+            local hum = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
+            if hum then hum.PlatformStand = false end
         end)
     end)
 
