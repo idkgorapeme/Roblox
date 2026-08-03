@@ -209,9 +209,6 @@ return function(section, data)
                 flyToPath(alive, "Boards&Gamepass", "WinsLeaderboard")
                 if not env.KEWin2 then break end
 
-                flyToPath(alive, "Structure", "Stage1", "SAS", "InvisibleWalls")
-                if not env.KEWin2 then break end
-
                 flyTo(Vector3.new(-1492, -61, -540), alive)
                 if not env.KEWin2 then break end
 
