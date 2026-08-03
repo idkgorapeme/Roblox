@@ -154,7 +154,7 @@ return function(section, data)
                 flyToPath(alive, "Structure", "Stage1", "SAS", "InvisibleWalls")
                 if not env.KEWin2 then break end
 
-                flyToPath(alive, "Structure", "Stage2", "SAS", "InvisibleWalls")
+                flyTo(Vector3.new(-1492, -61, -540), alive)
                 if not env.KEWin2 then break end
 
                 for _, point in ipairs(win2Points) do
