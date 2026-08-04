@@ -10,11 +10,13 @@ return function(section, data)
 
     env.MMCoins = false
     env.MMCoinEsp = false
+    env.MMMyRole = false
 
     local setdata = data[tostring(game.PlaceId)] or {}
     setdata.coins = setdata.coins or false
     setdata.coinesp = setdata.coinesp or false
     setdata.coindelay = setdata.coindelay or 0.12
+    setdata.myrole = setdata.myrole or false
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
@@ -204,6 +206,120 @@ return function(section, data)
             end
 
             clearCoinEsp()
+        end)
+    end)
+
+    ----------------------------------------------------------------
+    -- own role display
+    --
+    -- Shows YOUR OWN role above YOUR OWN head only. This is information
+    -- you already have, it reads your own tools and nobody else's.
+    ----------------------------------------------------------------
+
+    local roleGui
+
+    local function clearRoleGui()
+        if roleGui then
+            pcall(function() roleGui:Destroy() end)
+            roleGui = nil
+        end
+    end
+
+    -- murderer carries a knife, sheriff carries a gun, otherwise innocent
+    local function myRole()
+        local char = plr.Character
+        local backpack = plr:FindFirstChildOfClass("Backpack")
+
+        local function scan(container)
+            if not container then return nil end
+            for _, tool in pairs(container:GetChildren()) do
+                if tool:IsA("Tool") then
+                    local n = string.lower(tool.Name)
+                    if string.find(n, "knife", 1, true) then
+                        return "MURDERER"
+                    elseif string.find(n, "gun", 1, true)
+                        or string.find(n, "revolver", 1, true) then
+                        return "SHERIFF"
+                    end
+                end
+            end
+            return nil
+        end
+
+        local found = scan(char) or scan(backpack)
+        if found then return found end
+
+        -- the sheriff's gun drops on death and can be picked up by an
+        -- innocent, so anything else is simply innocent
+        return "INNOCENT"
+    end
+
+    local ROLE_COLOR = {
+        MURDERER = Color3.fromRGB(255, 60, 60),
+        SHERIFF  = Color3.fromRGB(60, 140, 255),
+        INNOCENT = Color3.fromRGB(120, 255, 120),
+    }
+
+    local function buildRoleGui()
+        local char = plr.Character
+        local head = char and char:FindFirstChild("Head")
+        if not head then return nil end
+
+        local gui = Instance.new("BillboardGui")
+        gui.Name = "BPMyRole"
+        gui.Size = UDim2.new(0, 200, 0, 40)
+        gui.StudsOffset = Vector3.new(0, 3, 0)
+        gui.AlwaysOnTop = true
+        gui.MaxDistance = 1000
+        gui.Adornee = head
+        gui.Parent = head
+
+        local label = Instance.new("TextLabel")
+        label.Name = "Role"
+        label.Size = UDim2.new(1, 0, 1, 0)
+        label.BackgroundTransparency = 1
+        label.Font = Enum.Font.GothamBold
+        label.TextSize = 20
+        label.TextStrokeTransparency = 0
+        label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        label.Text = ""
+        label.Parent = gui
+
+        return gui
+    end
+
+    elements:Toggle("Show My Role", section, setdata.myrole, function(v)
+        env.MMMyRole = v
+        env.setconfig("myrole", v)
+
+        if not v then
+            clearRoleGui()
+            return
+        end
+
+        task.spawn(function()
+            while env.MMMyRole do
+                pcall(function()
+                    -- rebuild after a respawn
+                    if not roleGui or not roleGui.Parent then
+                        clearRoleGui()
+                        roleGui = buildRoleGui()
+                    end
+
+                    if roleGui then
+                        local label = roleGui:FindFirstChild("Role")
+                        if label then
+                            local role = myRole()
+                            label.Text = role
+                            label.TextColor3 = ROLE_COLOR[role] or Color3.new(1, 1, 1)
+                        end
+                    end
+                end)
+
+                task.wait(0.5)
+            end
+
+            clearRoleGui()
         end)
     end)
 end
