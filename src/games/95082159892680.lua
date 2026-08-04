@@ -10,12 +10,14 @@ return function(section, data)
     env.KSWalk = false
     env.KSBuy = false
     env.KSWin = false
+    env.KSDestroy = false
 
     local setdata = data[tostring(game.PlaceId)] or {}
     setdata.walk = setdata.walk or false
     setdata.autowin = setdata.autowin or false
     setdata.winblock = setdata.winblock or 1
     setdata.flyspeed = setdata.flyspeed or 120
+    setdata.destroy1 = setdata.destroy1 or false
     setdata.autobuy = setdata.autobuy or false
     setdata.buy_mysterious = setdata.buy_mysterious ~= false
     setdata.buy_rare = setdata.buy_rare ~= false
@@ -55,13 +57,43 @@ return function(section, data)
 
     local runservice = game:GetService("RunService")
 
-    -- winblock N lives under Structure.Stage(N+1)
+    -- winblock N normally lives under Structure.Stage(N+1).
+    -- "before" holds the waypoints that must be flown BEFORE that block is
+    -- reachable, so continuing past a block automatically takes the detour.
     local WINBLOCKS = {
-        { stage = "Stage2", name = "WinBlock1" },
-        { stage = "Stage3", name = "WinBlock2" },
-        { stage = "Stage4", name = "WinBlock3" },
-        { stage = "Stage5", name = "WinBlock4" },
-        { stage = "Stage6", name = "WinBlock5" },
+        { name = "WinBlock1" },
+        { name = "WinBlock2" },
+        { name = "WinBlock3" },
+        { name = "WinBlock4" },
+        { name = "WinBlock5" },
+        { name = "WinBlock6", before = {
+            Vector3.new(-528, 63, 1429),
+        } },
+        { name = "WinBlock7" },
+        { name = "WinBlock8" },
+        { name = "WinBlock9", before = {
+            Vector3.new(-1432, 337, 1450),
+        } },
+        { name = "WinBlock10" },
+        { name = "WinBlock11", before = {
+            Vector3.new(-4296, 296, 1469),
+            Vector3.new(-4324, 440, 1491),
+        } },
+        { name = "WinBlock12", before = {
+            Vector3.new(-4452, 471, 1466),
+            Vector3.new(-4501, 471, 1125),
+            Vector3.new(-4740, 471, 1367),
+            Vector3.new(-4940, 471, 1432),
+            Vector3.new(-4993, 471, 1640),
+            Vector3.new(-5115, 471, 1121),
+            Vector3.new(-5247, 471, 1153),
+            Vector3.new(-5126, 471, 1456),
+        } },
+        { name = "WinBlock13", before = {
+            Vector3.new(-5678, 476, 1372),
+            Vector3.new(-6186, 489, 1429),
+            Vector3.new(-6483, 489, 1383),
+        } },
     }
 
     local flySpeed = tonumber(setdata.flyspeed) or 120
@@ -77,8 +109,17 @@ return function(section, data)
         if not def then return nil end
 
         local structure = workspace:FindFirstChild("Structure")
-        local stage = structure and structure:FindFirstChild(def.stage)
+        if not structure then return nil end
+
+        -- the usual layout is Structure.Stage(N+1).WinBlockN
+        local stage = structure:FindFirstChild("Stage" .. tostring(i + 1))
         local block = stage and stage:FindFirstChild(def.name)
+
+        -- fall back to a deep search so a renamed stage cannot break the chain
+        if not block then
+            block = structure:FindFirstChild(def.name, true)
+        end
+
         if not block then return nil end
 
         if block:IsA("BasePart") then return block end
@@ -177,7 +218,7 @@ return function(section, data)
         env.setconfig("flyspeed", n)
     end)
 
-    elements:Textbox("Win Block (1 - 5)", section, tostring(chosenWin), function(v)
+    elements:Textbox("Win Block (1 - 13)", section, tostring(chosenWin), function(v)
         local n = tonumber(v)
         if not n then return end
         chosenWin = math.clamp(math.floor(n), 1, #WINBLOCKS)
@@ -200,18 +241,31 @@ return function(section, data)
 
                 -- walk the chain: hover 8 studs over each block in turn and
                 -- only drop once we reach the one the user picked
-                for i = 1, #WINBLOCKS do
+                for i = 1, chosenWin do
+                    if not env.KSWin then break end
+
+                    local def = WINBLOCKS[i]
+
+                    -- detour waypoints that lead to this block
+                    if def.before then
+                        for _, point in ipairs(def.before) do
+                            if not env.KSWin then break end
+                            flyTo(point, alive)
+                        end
+                    end
+
                     if not env.KSWin then break end
 
                     local part = winBlockPart(i)
 
                     if part then
+                        -- hover 8 studs above every block on the way
                         flyTo(part.Position + Vector3.new(0, 8, 0), alive)
                         if not env.KSWin then break end
 
+                        -- only drop on the one the user picked
                         if i == chosenWin then
                             dropOnto(part, alive)
-                            break
                         end
                     end
                 end
@@ -222,6 +276,40 @@ return function(section, data)
             end
 
             stopNoclip()
+        end)
+    end)
+
+    ----------------------------------------------------------------
+    -- world 1 destroy
+    ----------------------------------------------------------------
+
+    elements:Toggle("World 1 Destroy", section, setdata.destroy1, function(v)
+        env.KSDestroy = v
+        env.setconfig("destroy1", v)
+        if not v then return end
+
+        task.spawn(function()
+            while env.KSDestroy do
+                pcall(function()
+                    local npc = workspace:FindFirstChild("NPC & Piege")
+
+                    if npc then
+                        local tower = npc:FindFirstChild("LavaTower")
+                        local lavaPart = tower and tower:FindFirstChild("LavaPart")
+                        if lavaPart then lavaPart:Destroy() end
+
+                        local corridor = npc:FindFirstChild("CorridorTrap")
+                        if corridor then corridor:Destroy() end
+                    end
+
+                    for _, name in ipairs({ "NPC10", "NPC12" }) do
+                        local target = workspace:FindFirstChild(name)
+                        if target then target:Destroy() end
+                    end
+                end)
+
+                task.wait(0.5)
+            end
         end)
     end)
 
