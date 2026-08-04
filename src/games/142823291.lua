@@ -225,34 +225,75 @@ return function(section, data)
         end
     end
 
-    -- murderer carries a knife, sheriff carries a gun, otherwise innocent
+    -- murderer carries a knife, sheriff carries a gun, otherwise innocent.
+    -- only ever looks at our own character and backpack.
     local function myRole()
         local char = plr.Character
         local backpack = plr:FindFirstChildOfClass("Backpack")
 
         local function scan(container)
             if not container then return nil end
+
             for _, tool in pairs(container:GetChildren()) do
                 if tool:IsA("Tool") then
                     local n = string.lower(tool.Name)
-                    if string.find(n, "knife", 1, true) then
+
+                    if string.find(n, "knife", 1, true)
+                        or string.find(n, "blade", 1, true) then
                         return "MURDERER"
-                    elseif string.find(n, "gun", 1, true)
-                        or string.find(n, "revolver", 1, true) then
+                    end
+
+                    if string.find(n, "gun", 1, true)
+                        or string.find(n, "revolver", 1, true)
+                        or string.find(n, "pistol", 1, true) then
                         return "SHERIFF"
                     end
                 end
             end
+
             return nil
         end
 
         local found = scan(char) or scan(backpack)
         if found then return found end
 
-        -- the sheriff's gun drops on death and can be picked up by an
-        -- innocent, so anything else is simply innocent
         return "INNOCENT"
     end
+
+    -- prints our own tools so the detection can be matched to real names
+    elements:Button("Debug My Role", section, function()
+        local char = plr.Character
+        local backpack = plr:FindFirstChildOfClass("Backpack")
+
+        print("[BrainrotPolice] character: " .. (char and char.Name or "NONE"))
+        print("[BrainrotPolice] head: "
+            .. tostring(char and char:FindFirstChild("Head") ~= nil))
+
+        local function list(label, container)
+            if not container then
+                print("  " .. label .. ": missing")
+                return
+            end
+
+            local n = 0
+            for _, c in pairs(container:GetChildren()) do
+                if c:IsA("Tool") then
+                    n = n + 1
+                    print("  " .. label .. " tool: " .. c.Name)
+                end
+            end
+
+            if n == 0 then
+                print("  " .. label .. ": no tools")
+            end
+        end
+
+        list("character", char)
+        list("backpack", backpack)
+
+        print("[BrainrotPolice] detected role: " .. myRole())
+        print("[BrainrotPolice] gui exists: " .. tostring(roleGui ~= nil and roleGui.Parent ~= nil))
+    end)
 
     local ROLE_COLOR = {
         MURDERER = Color3.fromRGB(255, 60, 60),
