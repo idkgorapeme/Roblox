@@ -67,8 +67,8 @@ return function(section, data)
         } },
         { name = "WinBlock4" },
         { name = "WinBlock5" },
-        { name = "WinBlock6", before = {
-            Vector3.new(-528, 63, 1429),
+        { name = "WinBlock6", waitTsunami = true, before = {
+            Vector3.new(-50, 54, 1497),
         } },
         { name = "WinBlock7" },
         { name = "WinBlock8" },
@@ -212,6 +212,55 @@ return function(section, data)
         end
     end
 
+    -- workspace["NPC & Piege"].Tsunami1.Tsunami
+    local function tsunamiPart()
+        local npc = workspace:FindFirstChild("NPC & Piege")
+        local t1 = npc and npc:FindFirstChild("Tsunami1")
+        local t = t1 and t1:FindFirstChild("Tsunami")
+        if not t then return nil end
+
+        if t:IsA("BasePart") then return t end
+        return t:FindFirstChildWhichIsA("BasePart", true)
+    end
+
+    -- blocks until the tsunami has passed x = -150.
+    -- the wave can travel either way, so we remember which side it started
+    -- on and wait for it to cross over, instead of assuming a direction.
+    local TSUNAMI_X = -150
+
+    local function waitForTsunami(keepAlive)
+        local part = tsunamiPart()
+
+        if not part then
+            warn("[BrainrotPolice] Tsunami not found, skipping the wait")
+            return
+        end
+
+        local startedBelow = part.Position.X < TSUNAMI_X
+        print(("[BrainrotPolice] waiting for tsunami to pass x=%d (now %.1f)")
+            :format(TSUNAMI_X, part.Position.X))
+
+        while keepAlive() do
+            part = tsunamiPart()
+
+            -- the wave despawning also counts as passed
+            if not part or not part.Parent then
+                print("[BrainrotPolice] tsunami gone, continuing")
+                return
+            end
+
+            local x = part.Position.X
+            local nowBelow = x < TSUNAMI_X
+
+            if nowBelow ~= startedBelow then
+                print(("[BrainrotPolice] tsunami passed x=%d (at %.1f)"):format(TSUNAMI_X, x))
+                return
+            end
+
+            task.wait(0.1)
+        end
+    end
+
     elements:Textbox("Fly Speed (default 120)", section, tostring(flySpeed), function(v)
         local n = tonumber(v)
         if not n or n <= 0 then return end
@@ -246,6 +295,12 @@ return function(section, data)
                     if not env.KSWin then break end
 
                     local def = WINBLOCKS[i]
+
+                    -- some blocks are only reachable once a hazard has moved
+                    if def.waitTsunami then
+                        waitForTsunami(alive)
+                        if not env.KSWin then break end
+                    end
 
                     -- detour waypoints that lead to this block.
                     -- these MUST be flown before the block itself, otherwise
