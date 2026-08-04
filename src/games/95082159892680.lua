@@ -163,7 +163,13 @@ return function(section, data)
         end
 
         local hum = char and char:FindFirstChildOfClass("Humanoid")
-        if hum then hum.PlatformStand = false end
+        if hum then
+            hum.PlatformStand = false
+            -- Physics state leaves the character limp and unmovable
+            pcall(function()
+                hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+            end)
+        end
     end
 
     -- flies to a position, returns true on arrival
@@ -261,11 +267,21 @@ return function(section, data)
             root.Anchored = true
         end
 
+        -- give the character back to the player: unanchor AND undo the
+        -- humanoid state, otherwise PlatformStand / Physics keep input dead
         local function unfreeze()
             local r = getRoot()
             if r then
                 r.Anchored = false
                 r.AssemblyLinearVelocity = Vector3.zero
+            end
+
+            local h = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
+            if h then
+                h.PlatformStand = false
+                pcall(function()
+                    h:ChangeState(Enum.HumanoidStateType.GettingUp)
+                end)
             end
         end
 
@@ -326,7 +342,7 @@ return function(section, data)
         env.KSWin = v
         env.setconfig("autowin", v)
         if not v then
-            -- never leave the character frozen in the air
+            -- never leave the character frozen or unmovable
             pcall(function()
                 local root = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
                 if root then root.Anchored = false end
