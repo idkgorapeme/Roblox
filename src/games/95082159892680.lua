@@ -23,7 +23,6 @@ return function(section, data)
     setdata.buy_rare = setdata.buy_rare ~= false
     setdata.buy_uncommon = setdata.buy_uncommon ~= false
     setdata.buy_common = setdata.buy_common ~= false
-    setdata.buycount = setdata.buycount or 5
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
@@ -314,7 +313,7 @@ return function(section, data)
     end)
 
     ----------------------------------------------------------------
-    -- auto buy system
+    -- auto buy: wait for the shop restock event, buy the selected items
     ----------------------------------------------------------------
 
     local BUY_ORDER = { "Mysterious", "Rare", "Uncommon", "Common" }
@@ -325,84 +324,71 @@ return function(section, data)
         Common     = "buy_common",
     }
 
-    local DELAY_BETWEEN_FIRES = 0.2
-    local DELAY_BETWEEN_ITEMS = 1.0
-
-    local buyCount = tonumber(setdata.buycount) or 5
+    local BUY_TIMES = 5
+    local BUY_DELAY = 0.2
 
     local buySelected = {}
     for _, name in ipairs(BUY_ORDER) do
         buySelected[name] = setdata[BUY_KEY[name]] ~= false
     end
 
-    -- the remo container holds either real RemoteEvents or remo tables
-    local function remoContainer()
+    -- Finds a remo remote by name. The old version only looked at
+    -- container's direct children, which is why nothing ever fired.
+    -- This searches the whole remo package, then ReplicatedStorage.
+    local function findRemote(name)
         local pkgs = replicatedstorage:FindFirstChild("Packages")
         local index = pkgs and pkgs:FindFirstChild("_Index")
-        if not index then return nil end
 
-        local remoPkg = index:FindFirstChild("littensy_remo@1.5.3")
-        if not remoPkg then
-            -- version can change, match on the prefix
+        if index then
             for _, child in pairs(index:GetChildren()) do
                 if string.sub(child.Name, 1, 14) == "littensy_remo@" then
-                    remoPkg = child
-                    break
+                    local found = child:FindFirstChild(name, true)
+                    if found then return found end
                 end
             end
         end
-        if not remoPkg then return nil end
 
-        local remo = remoPkg:FindFirstChild("remo")
-        return remo and remo:FindFirstChild("container") or nil
+        return replicatedstorage:FindFirstChild(name, true)
     end
 
-    -- works with both the remo table api and a plain RemoteEvent
     local function fireBuy(itemName)
-        local container = remoContainer()
-        local buyWins = container and container:FindFirstChild("BuyWins")
-        if not buyWins then return end
+        local buyWins = findRemote("BuyWins")
+        if not buyWins then return false end
 
-        pcall(function()
+        local ok = pcall(function()
             if typeof(buyWins) == "Instance" and buyWins:IsA("RemoteEvent") then
                 buyWins:FireServer(itemName)
+            elseif typeof(buyWins) == "Instance" and buyWins:IsA("RemoteFunction") then
+                buyWins:InvokeServer(itemName)
             elseif typeof(buyWins) == "table" and type(buyWins.fire) == "function" then
                 buyWins:fire(itemName)
             end
         end)
+
+        return ok
     end
 
     local buyRunning = false
 
-    local function runBuySequence()
+    -- one restock = each selected item bought BUY_TIMES times
+    local function onRestock()
         if buyRunning or not env.KSBuy then return end
         buyRunning = true
 
-        pcall(function()
-            for _, itemName in ipairs(BUY_ORDER) do
-                if not env.KSBuy then break end
+        for _, itemName in ipairs(BUY_ORDER) do
+            if not env.KSBuy then break end
 
-                if buySelected[itemName] then
-                    for _ = 1, buyCount do
-                        if not env.KSBuy then break end
-                        fireBuy(itemName)
-                        task.wait(DELAY_BETWEEN_FIRES)
-                    end
-
-                    task.wait(DELAY_BETWEEN_ITEMS)
+            if buySelected[itemName] then
+                for _ = 1, BUY_TIMES do
+                    if not env.KSBuy then break end
+                    fireBuy(itemName)
+                    task.wait(BUY_DELAY)
                 end
             end
-        end)
+        end
 
         buyRunning = false
     end
-
-    elements:Textbox("Buy Amount (default 5)", section, tostring(buyCount), function(v)
-        local n = tonumber(v)
-        if not n or n < 1 then return end
-        buyCount = math.floor(n)
-        env.setconfig("buycount", buyCount)
-    end)
 
     for _, itemName in ipairs(BUY_ORDER) do
         elements:Toggle("Buy " .. itemName, section, buySelected[itemName], function(v)
@@ -418,47 +404,46 @@ return function(section, data)
         env.setconfig("autobuy", v)
 
         if shopConn then
-            shopConn:Disconnect()
+            pcall(function() shopConn:Disconnect() end)
             shopConn = nil
         end
 
         if not v then return end
 
-        local container = remoContainer()
-        local shopUpdate = container and container:FindFirstChild("ShopUpdate")
+        local shopUpdate = findRemote("ShopUpdate")
 
-        if shopUpdate and typeof(shopUpdate) == "Instance" and shopUpdate:IsA("RemoteEvent") then
+        if not shopUpdate then
+            warn("[BrainrotPolice] ShopUpdate not found, Auto Buy cannot arm")
+            env.KSBuy = false
+            return
+        end
+
+        if typeof(shopUpdate) == "Instance" and shopUpdate:IsA("RemoteEvent") then
             shopConn = shopUpdate.OnClientEvent:Connect(function()
-                if env.KSBuy then
-                    task.spawn(runBuySequence)
-                end
+                task.spawn(onRestock)
             end)
 
             if env.BrainrotPolice and env.BrainrotPolice.track then
                 env.BrainrotPolice.track(shopConn)
             end
-        elseif shopUpdate and typeof(shopUpdate) == "table" then
-            pcall(function()
+
+            print("[BrainrotPolice] Auto Buy armed on " .. shopUpdate:GetFullName())
+        elseif typeof(shopUpdate) == "table" then
+            local connected = pcall(function()
                 local fn = shopUpdate.connect or shopUpdate.listen
                 if type(fn) == "function" then
-                    fn(shopUpdate, function()
-                        if env.KSBuy then
-                            task.spawn(runBuySequence)
-                        end
+                    shopConn = fn(shopUpdate, function()
+                        task.spawn(onRestock)
                     end)
                 end
             end)
-        else
-            warn("[BrainrotPolice] ShopUpdate not found, auto buy only runs on the timer")
-        end
 
-        -- buy immediately, then keep buying so a missed restock event does
-        -- not stall the whole thing
-        task.spawn(function()
-            while env.KSBuy do
-                runBuySequence()
-                task.wait(5)
+            if connected then
+                print("[BrainrotPolice] Auto Buy armed on the remo listener")
+            else
+                warn("[BrainrotPolice] could not connect to ShopUpdate")
+                env.KSBuy = false
             end
-        end)
+        end
     end)
 end
