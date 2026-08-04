@@ -228,20 +228,11 @@ return function(section, data)
     -- on and wait for it to cross over, instead of assuming a direction.
     local TSUNAMI_X = -150
 
-    -- holdPos keeps us hovering in place, otherwise gravity drags us down
-    -- while we wait, because noclip is still on
+    -- Holds the character perfectly still in the air until the tsunami passes.
+    -- Setting the CFrame on a timer is not enough, gravity still acts between
+    -- updates, so the root part is ANCHORED for the whole wait. Nothing can
+    -- pull us down while anchored.
     local function waitForTsunami(keepAlive, holdPos)
-        local function hold()
-            local root = getRoot()
-            if root and holdPos then
-                root.CFrame = CFrame.new(holdPos)
-                root.AssemblyLinearVelocity = Vector3.zero
-
-                local hum = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
-                if hum then hum.PlatformStand = true end
-            end
-        end
-
         local part = tsunamiPart()
 
         if not part then
@@ -249,18 +240,55 @@ return function(section, data)
             return
         end
 
+        local root = getRoot()
+        local hum = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
+
+        -- park us on the spot and freeze
+        if root and holdPos then
+            root.CFrame = CFrame.new(holdPos)
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+        end
+
+        if hum then
+            hum.PlatformStand = true
+            pcall(function()
+                hum:ChangeState(Enum.HumanoidStateType.Physics)
+            end)
+        end
+
+        if root then
+            root.Anchored = true
+        end
+
+        local function unfreeze()
+            local r = getRoot()
+            if r then
+                r.Anchored = false
+                r.AssemblyLinearVelocity = Vector3.zero
+            end
+        end
+
         local startedBelow = part.Position.X < TSUNAMI_X
-        print(("[BrainrotPolice] waiting for tsunami to pass x=%d (now %.1f)")
+        print(("[BrainrotPolice] holding above the block, waiting for tsunami to pass x=%d (now %.1f)")
             :format(TSUNAMI_X, part.Position.X))
 
         while keepAlive() do
-            hold()
+            -- a respawn gives us a brand new root, so re-anchor it
+            local r = getRoot()
+            if r and not r.Anchored then
+                if holdPos then
+                    r.CFrame = CFrame.new(holdPos)
+                end
+                r.Anchored = true
+            end
 
             part = tsunamiPart()
 
             -- the wave despawning also counts as passed
             if not part or not part.Parent then
                 print("[BrainrotPolice] tsunami gone, continuing")
+                unfreeze()
                 return
             end
 
@@ -269,12 +297,15 @@ return function(section, data)
 
             if nowBelow ~= startedBelow then
                 print(("[BrainrotPolice] tsunami passed x=%d (at %.1f)"):format(TSUNAMI_X, x))
+                unfreeze()
                 return
             end
 
-            -- re-pin often so we do not sag between checks
-            task.wait(0.05)
+            task.wait(0.1)
         end
+
+        -- toggled off mid wait
+        unfreeze()
     end
 
     elements:Textbox("Fly Speed (default 120)", section, tostring(flySpeed), function(v)
@@ -295,6 +326,11 @@ return function(section, data)
         env.KSWin = v
         env.setconfig("autowin", v)
         if not v then
+            -- never leave the character frozen in the air
+            pcall(function()
+                local root = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
+                if root then root.Anchored = false end
+            end)
             stopNoclip()
             return
         end
@@ -366,6 +402,10 @@ return function(section, data)
                 task.wait(1)
             end
 
+            pcall(function()
+                local root = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
+                if root then root.Anchored = false end
+            end)
             stopNoclip()
         end)
     end)
