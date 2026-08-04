@@ -660,6 +660,48 @@ end)
 
 -- rejoin -------------------------------------------------------
 
+-- anti afk ------------------------------------------------------
+
+do
+    local vu = game:GetService("VirtualUser")
+    local idleConn
+
+    local function saved()
+        local ok, dec = pcall(function()
+            return httpservice:JSONDecode(readfile("BrainrotPolice/Config.json"))
+        end)
+        if ok and type(dec) == "table" and dec.settings then
+            return dec.settings.anti_afk == true
+        end
+        return false
+    end
+
+    elements:Toggle("Anti AFK", Sections.Settings.Container, saved(), function(v)
+        env.BPAntiAFK = v
+        saveSetting("anti_afk", v)
+
+        if idleConn then
+            idleConn:Disconnect()
+            idleConn = nil
+        end
+
+        if not v then return end
+
+        -- Roblox kicks after 20 minutes of no input. Idled fires at ~20 min,
+        -- so a click through VirtualUser resets the timer without moving you.
+        idleConn = lp.Idled:Connect(function()
+            if not env.BPAntiAFK then return end
+
+            pcall(function()
+                vu:CaptureController()
+                vu:ClickButton2(Vector2.new())
+            end)
+        end)
+
+        track(idleConn)
+    end)
+end
+
 elements:Button("Rejoin Server", Sections.Settings.Container, function()
     local teleportservice = game:GetService("TeleportService")
 
