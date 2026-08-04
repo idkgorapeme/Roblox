@@ -77,7 +77,7 @@ env.BrainrotPolice.globals = {
     "AutoWin", "KeyFarm", "KeyHighlight", "World2Help", "World2Destroy",
     "MacroPlaying", "MacroRecording",
     "BPFly", "BPInfJump", "BPNoclip", "BPAntiAFK", "AutoPrestige", "AutoClickAttack",
-    "DBCollect", "DBUpgrade", "DBRebirth", "SBPump", "SBUpgrade", "SBLaunch", "SBFuel", "MNLock", "MNMerge", "SSWin", "SSRebirth", "KEWin1", "KEWin2", "KEDestroy", "KECoins", "KEBuy", "KSWalk", "KSBuy", "KSWin", "KSDestroy", "SWSell"
+    "DBCollect", "DBUpgrade", "DBRebirth", "SBPump", "SBUpgrade", "SBLaunch", "SBFuel", "MNLock", "MNMerge", "SSWin", "SSRebirth", "KEWin1", "KEWin2", "KEDestroy", "KECoins", "KEBuy", "KSWalk", "KSBuy", "KSWin", "KSDestroy", "SWSell", "SWRebirth", "SWCollect", "SWSpy"
 }
 
 function env.BrainrotPolice.unload()
