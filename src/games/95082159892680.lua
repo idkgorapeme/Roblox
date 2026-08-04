@@ -67,7 +67,7 @@ return function(section, data)
         } },
         { name = "WinBlock4" },
         { name = "WinBlock5" },
-        { name = "WinBlock6", waitTsunami = true,
+        { name = "WinBlock6", waitTsunami = true, walkAfterWait = true,
           waitAt = Vector3.new(2, 77, 1422), before = {
             Vector3.new(-50, 54, 1497),
         } },
@@ -294,6 +294,37 @@ return function(section, data)
         end
     end
 
+    -- Walks the character with the humanoid instead of flying. Used where the
+    -- game expects real movement, so no body movers and no noclip.
+    local function walkTo(targetPos, keepAlive, timeout)
+        if not targetPos then return false end
+
+        timeout = timeout or 15
+        local elapsed = 0
+
+        while keepAlive() and elapsed < timeout do
+            local char = plr.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+
+            if not hum or not root then
+                task.wait(0.1)
+                elapsed = elapsed + 0.1
+            else
+                local dist = (targetPos - root.Position).Magnitude
+                if dist < 5 then
+                    return true
+                end
+
+                hum:MoveTo(targetPos)
+                task.wait(0.1)
+                elapsed = elapsed + 0.1
+            end
+        end
+
+        return false
+    end
+
     -- lands on the block: movers off, collision back on
     local function dropOnto(part, keepAlive)
         stopFlight()
@@ -424,8 +455,18 @@ return function(section, data)
                         if not env.KSWin then break end
                     end
 
+                    -- some sections have to be done on foot
+                    local onFoot = def.walkAfterWait
+
+                    if onFoot then
+                        -- stop flying and hand the character back to physics
+                        stopFlight()
+                        stopNoclip()
+                        print("[BrainrotPolice] walking section before " .. def.name)
+                    end
+
                     -- detour waypoints that lead to this block.
-                    -- these MUST be flown before the block itself, otherwise
+                    -- these MUST be crossed before the block itself, otherwise
                     -- the path cuts straight through the map.
                     if def.before then
                         for wp, point in ipairs(def.before) do
@@ -434,7 +475,13 @@ return function(section, data)
                             print(("[BrainrotPolice] waypoint %d/%d before %s -> %s")
                                 :format(wp, #def.before, def.name, tostring(point)))
 
-                            local reached = flyTo(point, alive)
+                            local reached
+                            if onFoot then
+                                reached = walkTo(point, alive)
+                            else
+                                reached = flyTo(point, alive)
+                            end
+
                             if not reached and env.KSWin then
                                 warn("[BrainrotPolice] waypoint not reached: " .. tostring(point))
                             end
@@ -446,6 +493,28 @@ return function(section, data)
                     local part = winBlockPart(i)
 
                     if part then
+                        if onFoot then
+                            -- walk to 20 studs in front of the block, then fly
+                            -- again only if we still have blocks to reach
+                            local root = getRoot()
+                            local from = root and root.Position or part.Position
+                            local dir = (part.Position - from)
+                            dir = Vector3.new(dir.X, 0, dir.Z)
+
+                            if dir.Magnitude > 0.1 then
+                                local stopShort = part.Position - dir.Unit * 20
+                                print("[BrainrotPolice] walking to 20 studs before " .. def.name)
+                                walkTo(Vector3.new(stopShort.X, part.Position.Y, stopShort.Z), alive)
+                            end
+
+                            if not env.KSWin then break end
+
+                            -- resume flying for anything past this block
+                            if i < chosenWin then
+                                startNoclip()
+                            end
+                        end
+
                         print("[BrainrotPolice] flying to " .. def.name)
 
                         -- hover 8 studs above every block on the way
