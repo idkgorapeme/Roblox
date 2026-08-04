@@ -62,7 +62,9 @@ return function(section, data)
     local WINBLOCKS = {
         { name = "WinBlock1" },
         { name = "WinBlock2" },
-        { name = "WinBlock3" },
+        { name = "WinBlock3", before = {
+            Vector3.new(-20, 8, 574),
+        } },
         { name = "WinBlock4" },
         { name = "WinBlock5" },
         { name = "WinBlock6", before = {
