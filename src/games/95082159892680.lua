@@ -67,7 +67,8 @@ return function(section, data)
         } },
         { name = "WinBlock4" },
         { name = "WinBlock5" },
-        { name = "WinBlock6", waitTsunami = true, before = {
+        { name = "WinBlock6", waitTsunami = true,
+          waitAt = Vector3.new(2, 77, 1422), before = {
             Vector3.new(-50, 54, 1497),
         } },
         { name = "WinBlock7" },
@@ -404,9 +405,20 @@ return function(section, data)
                     -- some blocks are only reachable once a hazard has moved.
                     -- float above the previous block while we wait.
                     if def.waitTsunami then
-                        local prev = winBlockPart(i - 1)
-                        local holdPos = prev and (prev.Position + Vector3.new(0, 8, 0))
-                            or (getRoot() and getRoot().Position)
+                        -- park next to the previous block, not above it
+                        local holdPos = def.waitAt
+
+                        if not holdPos then
+                            local prev = winBlockPart(i - 1)
+                            holdPos = prev and (prev.Position + Vector3.new(0, 8, 0))
+                                or (getRoot() and getRoot().Position)
+                        end
+
+                        -- move to the waiting spot before holding there
+                        if holdPos then
+                            flyTo(holdPos, alive)
+                            if not env.KSWin then break end
+                        end
 
                         waitForTsunami(alive, holdPos)
                         if not env.KSWin then break end
