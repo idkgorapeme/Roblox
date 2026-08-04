@@ -36,17 +36,30 @@ return function(section, data)
     -- coins live in <map>.CoinContainer, and the map changes every round
     ----------------------------------------------------------------
 
+    -- Cached. The recursive fallback walks the ENTIRE workspace and was being
+    -- called every second by both the farm and the esp loop, which is enough
+    -- to visibly stutter the game.
+    local cachedContainer
+
     local function coinContainer()
-        -- search every top level model for a CoinContainer
+        if cachedContainer and cachedContainer.Parent then
+            return cachedContainer
+        end
+
+        cachedContainer = nil
+
+        -- the map is a top level model, so this stays a shallow scan
         for _, child in pairs(workspace:GetChildren()) do
             if child:IsA("Model") or child:IsA("Folder") then
                 local c = child:FindFirstChild("CoinContainer")
-                if c then return c end
+                if c then
+                    cachedContainer = c
+                    return c
+                end
             end
         end
 
-        -- last resort, anywhere in the tree
-        return workspace:FindFirstChild("CoinContainer", true)
+        return nil
     end
 
     local function coinPart(inst)
@@ -103,7 +116,10 @@ return function(section, data)
         env.setconfig("coinmovemode", v)
     end)
 
-    elements:Toggle("Auto Collect Coins", section, setdata.coins, function(v)
+    -- Deliberately starts OFF every session. elements:Toggle fires its
+    -- callback once on load, so a saved "true" threw the character across
+    -- the map the instant you joined.
+    elements:Toggle("Auto Collect Coins", section, false, function(v)
         env.MMCoins = v
         env.setconfig("coins", v)
         if not v then return end
@@ -115,7 +131,9 @@ return function(section, data)
                 local root = getRoot()
                 local humanoid = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
 
-                if root and humanoid then
+                -- farming while dead or between rounds just flings the
+                -- corpse around, wait for a living character instead
+                if root and humanoid and humanoid.Health > 0 then
                     local coins = findCoins()
 
                     if not announced then
