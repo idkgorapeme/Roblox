@@ -9,9 +9,13 @@ return function(section, data)
 
     env.KSWalk = false
     env.KSBuy = false
+    env.KSWin = false
 
     local setdata = data[tostring(game.PlaceId)] or {}
     setdata.walk = setdata.walk or false
+    setdata.autowin = setdata.autowin or false
+    setdata.winblock = setdata.winblock or 1
+    setdata.flyspeed = setdata.flyspeed or 120
     setdata.autobuy = setdata.autobuy or false
     setdata.buy_mysterious = setdata.buy_mysterious ~= false
     setdata.buy_rare = setdata.buy_rare ~= false
@@ -42,6 +46,182 @@ return function(section, data)
 
                 task.wait()
             end
+        end)
+    end)
+
+    ----------------------------------------------------------------
+    -- auto win: fly the winblock chain and drop on the chosen one
+    ----------------------------------------------------------------
+
+    local runservice = game:GetService("RunService")
+
+    -- winblock N lives under Structure.Stage(N+1)
+    local WINBLOCKS = {
+        { stage = "Stage2", name = "WinBlock1" },
+        { stage = "Stage3", name = "WinBlock2" },
+        { stage = "Stage4", name = "WinBlock3" },
+        { stage = "Stage5", name = "WinBlock4" },
+        { stage = "Stage6", name = "WinBlock5" },
+    }
+
+    local flySpeed = tonumber(setdata.flyspeed) or 120
+    local chosenWin = math.clamp(tonumber(setdata.winblock) or 1, 1, #WINBLOCKS)
+
+    local function getRoot()
+        local char = plr.Character
+        return char and char:FindFirstChild("HumanoidRootPart")
+    end
+
+    local function winBlockPart(i)
+        local def = WINBLOCKS[i]
+        if not def then return nil end
+
+        local structure = workspace:FindFirstChild("Structure")
+        local stage = structure and structure:FindFirstChild(def.stage)
+        local block = stage and stage:FindFirstChild(def.name)
+        if not block then return nil end
+
+        if block:IsA("BasePart") then return block end
+        return block:FindFirstChildWhichIsA("BasePart", true)
+    end
+
+    -- noclip so walls and stage geometry cannot block the flight
+    local noclipConn
+
+    local function startNoclip()
+        if noclipConn then return end
+        noclipConn = runservice.Stepped:Connect(function()
+            local char = plr.Character
+            if not char then return end
+            for _, part in pairs(char:GetDescendants()) do
+                if part:IsA("BasePart") and part.CanCollide then
+                    part.CanCollide = false
+                end
+            end
+        end)
+
+        if env.BrainrotPolice and env.BrainrotPolice.track then
+            env.BrainrotPolice.track(noclipConn)
+        end
+    end
+
+    local function stopNoclip()
+        if noclipConn then
+            noclipConn:Disconnect()
+            noclipConn = nil
+        end
+
+        local char = plr.Character
+        if char then
+            for _, part in pairs(char:GetDescendants()) do
+                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                    pcall(function() part.CanCollide = true end)
+                end
+            end
+        end
+
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum then hum.PlatformStand = false end
+    end
+
+    -- flies to a position, returns true on arrival
+    local function flyTo(targetPos, keepAlive)
+        if not targetPos then return false end
+
+        while keepAlive() do
+            local root = getRoot()
+            if not root then return false end
+
+            local delta = targetPos - root.Position
+            local dist = delta.Magnitude
+
+            if dist < 4 then
+                root.CFrame = CFrame.new(targetPos)
+                root.AssemblyLinearVelocity = Vector3.zero
+                return true
+            end
+
+            local dt = runservice.Heartbeat:Wait()
+            local step = math.min(flySpeed * dt, dist)
+
+            root.CFrame = CFrame.new(root.Position + delta.Unit * step)
+            root.AssemblyLinearVelocity = Vector3.zero
+
+            local hum = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
+            if hum then hum.PlatformStand = true end
+        end
+
+        return false
+    end
+
+    -- lands on the block: collision back on, pinned in place briefly
+    local function dropOnto(part, keepAlive)
+        stopNoclip()
+
+        local elapsed = 0
+        while elapsed < 0.4 and keepAlive() do
+            local root = getRoot()
+            if root and part and part.Parent then
+                root.CFrame = CFrame.new(part.Position + Vector3.new(0, 3, 0))
+                root.AssemblyLinearVelocity = Vector3.zero
+            end
+            task.wait(0.05)
+            elapsed = elapsed + 0.05
+        end
+    end
+
+    elements:Textbox("Fly Speed (default 120)", section, tostring(flySpeed), function(v)
+        local n = tonumber(v)
+        if not n or n <= 0 then return end
+        flySpeed = n
+        env.setconfig("flyspeed", n)
+    end)
+
+    elements:Textbox("Win Block (1 - 5)", section, tostring(chosenWin), function(v)
+        local n = tonumber(v)
+        if not n then return end
+        chosenWin = math.clamp(math.floor(n), 1, #WINBLOCKS)
+        env.setconfig("winblock", chosenWin)
+    end)
+
+    elements:Toggle("Auto Win", section, setdata.autowin, function(v)
+        env.KSWin = v
+        env.setconfig("autowin", v)
+        if not v then
+            stopNoclip()
+            return
+        end
+
+        task.spawn(function()
+            local alive = function() return env.KSWin end
+
+            while env.KSWin do
+                startNoclip()
+
+                -- walk the chain: hover 8 studs over each block in turn and
+                -- only drop once we reach the one the user picked
+                for i = 1, #WINBLOCKS do
+                    if not env.KSWin then break end
+
+                    local part = winBlockPart(i)
+
+                    if part then
+                        flyTo(part.Position + Vector3.new(0, 8, 0), alive)
+                        if not env.KSWin then break end
+
+                        if i == chosenWin then
+                            dropOnto(part, alive)
+                            break
+                        end
+                    end
+                end
+
+                if not env.KSWin then break end
+
+                task.wait(1)
+            end
+
+            stopNoclip()
         end)
     end)
 
