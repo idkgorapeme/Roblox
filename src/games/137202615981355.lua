@@ -6,7 +6,6 @@ return function(section, data)
 
     local players = game:GetService("Players")
     local replicatedstorage = game:GetService("ReplicatedStorage")
-    local runservice = game:GetService("RunService")
     local plr = players.LocalPlayer
 
     env.JHJump = false
@@ -80,22 +79,21 @@ return function(section, data)
     ----------------------------------------------------------------
 
     local ceilingPart
-    local ceilingConn
 
     local function removeCeiling()
-        if ceilingConn then
-            ceilingConn:Disconnect()
-            ceilingConn = nil
-        end
-
         if ceilingPart then
             pcall(function() ceilingPart:Destroy() end)
             ceilingPart = nil
         end
     end
 
+    -- Placed once, where the player is standing when the farm is switched on,
+    -- and then left alone. It does not follow the character.
     local function buildCeiling()
         removeCeiling()
+
+        local root = getRoot()
+        if not root then return false end
 
         local part = Instance.new("Part")
         part.Name = "BPJumpCeiling"
@@ -107,25 +105,11 @@ return function(section, data)
         part.Color = Color3.fromRGB(0, 170, 255)
         part.TopSurface = Enum.SurfaceType.Smooth
         part.BottomSurface = Enum.SurfaceType.Smooth
+        part.CFrame = CFrame.new(root.Position + Vector3.new(0, ceilingHeight, 0))
         part.Parent = workspace
 
         ceilingPart = part
-
-        -- keep it pinned over the head every frame, otherwise walking away
-        -- lets the character jump freely again
-        ceilingConn = runservice.Heartbeat:Connect(function()
-            if not env.JHJump then return end
-
-            local root = getRoot()
-            if not root or not ceilingPart or not ceilingPart.Parent then return end
-
-            ceilingPart.CFrame = CFrame.new(
-                root.Position + Vector3.new(0, ceilingHeight, 0))
-        end)
-
-        if env.BrainrotPolice and env.BrainrotPolice.track then
-            env.BrainrotPolice.track(ceilingConn)
-        end
+        return true
     end
 
     elements:Textbox("Jump Delay (default 0.05)", section, tostring(jumpDelay), function(v)
@@ -152,19 +136,19 @@ return function(section, data)
             return
         end
 
-        buildCeiling()
+        if not buildCeiling() then
+            warn("[BrainrotPolice] no character yet, toggle again once you have spawned")
+            env.JHJump = false
+            return
+        end
+
+        print("[BrainrotPolice] ceiling placed, stand under it and it will farm")
 
         task.spawn(function()
             while env.JHJump do
                 pcall(function()
                     local hum = getHum()
-
                     if hum and hum.Health > 0 then
-                        -- rebuild if the map or a respawn removed it
-                        if not ceilingPart or not ceilingPart.Parent then
-                            buildCeiling()
-                        end
-
                         hum.Jump = true
                     end
                 end)
