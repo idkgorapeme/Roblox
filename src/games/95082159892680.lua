@@ -228,7 +228,20 @@ return function(section, data)
     -- on and wait for it to cross over, instead of assuming a direction.
     local TSUNAMI_X = -150
 
-    local function waitForTsunami(keepAlive)
+    -- holdPos keeps us hovering in place, otherwise gravity drags us down
+    -- while we wait, because noclip is still on
+    local function waitForTsunami(keepAlive, holdPos)
+        local function hold()
+            local root = getRoot()
+            if root and holdPos then
+                root.CFrame = CFrame.new(holdPos)
+                root.AssemblyLinearVelocity = Vector3.zero
+
+                local hum = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
+                if hum then hum.PlatformStand = true end
+            end
+        end
+
         local part = tsunamiPart()
 
         if not part then
@@ -241,6 +254,8 @@ return function(section, data)
             :format(TSUNAMI_X, part.Position.X))
 
         while keepAlive() do
+            hold()
+
             part = tsunamiPart()
 
             -- the wave despawning also counts as passed
@@ -257,7 +272,8 @@ return function(section, data)
                 return
             end
 
-            task.wait(0.1)
+            -- re-pin often so we do not sag between checks
+            task.wait(0.05)
         end
     end
 
@@ -296,9 +312,14 @@ return function(section, data)
 
                     local def = WINBLOCKS[i]
 
-                    -- some blocks are only reachable once a hazard has moved
+                    -- some blocks are only reachable once a hazard has moved.
+                    -- float above the previous block while we wait.
                     if def.waitTsunami then
-                        waitForTsunami(alive)
+                        local prev = winBlockPart(i - 1)
+                        local holdPos = prev and (prev.Position + Vector3.new(0, 8, 0))
+                            or (getRoot() and getRoot().Position)
+
+                        waitForTsunami(alive, holdPos)
                         if not env.KSWin then break end
                     end
 
