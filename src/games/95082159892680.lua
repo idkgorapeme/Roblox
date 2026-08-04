@@ -247,11 +247,20 @@ return function(section, data)
 
                     local def = WINBLOCKS[i]
 
-                    -- detour waypoints that lead to this block
+                    -- detour waypoints that lead to this block.
+                    -- these MUST be flown before the block itself, otherwise
+                    -- the path cuts straight through the map.
                     if def.before then
-                        for _, point in ipairs(def.before) do
+                        for wp, point in ipairs(def.before) do
                             if not env.KSWin then break end
-                            flyTo(point, alive)
+
+                            print(("[BrainrotPolice] waypoint %d/%d before %s -> %s")
+                                :format(wp, #def.before, def.name, tostring(point)))
+
+                            local reached = flyTo(point, alive)
+                            if not reached and env.KSWin then
+                                warn("[BrainrotPolice] waypoint not reached: " .. tostring(point))
+                            end
                         end
                     end
 
@@ -260,14 +269,19 @@ return function(section, data)
                     local part = winBlockPart(i)
 
                     if part then
+                        print("[BrainrotPolice] flying to " .. def.name)
+
                         -- hover 8 studs above every block on the way
                         flyTo(part.Position + Vector3.new(0, 8, 0), alive)
                         if not env.KSWin then break end
 
                         -- only drop on the one the user picked
                         if i == chosenWin then
+                            print("[BrainrotPolice] dropping on " .. def.name)
                             dropOnto(part, alive)
                         end
+                    else
+                        warn("[BrainrotPolice] " .. def.name .. " not found in workspace.Structure")
                     end
                 end
 
