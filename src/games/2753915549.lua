@@ -15,13 +15,13 @@ return function(section, data)
     local setdata = data[tostring(game.PlaceId)] or {}
     setdata.farm = setdata.farm or false
     setdata.flyspeed = setdata.flyspeed or 120
-    setdata.height = setdata.height or 4
+    setdata.height = setdata.height or 1
     setdata.range = setdata.range or 5000
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
     local flySpeed = tonumber(setdata.flyspeed) or 120
-    local hoverHeight = tonumber(setdata.height) or 4
+    local hoverHeight = tonumber(setdata.height) or 1
     local maxRange = tonumber(setdata.range) or 5000
 
     local function getChar()
@@ -261,37 +261,86 @@ return function(section, data)
     -- captured from a real swing: RE/RegisterAttack:FireServer(0.5)
     local ATTACK_ARG = 0.5
 
-    local attackWarned = false
     local lastSwing = 0
 
-    local function attack()
-        -- the remote alone does not swing anything, the equipped tool has to
-        -- be activated too, that is what actually starts the attack
+    -- Resolves the attack remote. The name literally contains a slash, and
+    -- some executors choke on that with dot indexing, so we also fall back
+    -- to scanning the children by name.
+    local function attackRemote()
+        local direct = netRemote("RE/RegisterAttack")
+        if direct then return direct end
+
+        local modules = replicatedstorage:FindFirstChild("Modules")
+        local net = modules and modules:FindFirstChild("Net")
+
+        if net then
+            for _, child in pairs(net:GetChildren()) do
+                if child.Name == "RE/RegisterAttack" then
+                    return child
+                end
+            end
+        end
+
+        -- last resort, anywhere under ReplicatedStorage
+        for _, child in pairs(replicatedstorage:GetDescendants()) do
+            if child.Name == "RE/RegisterAttack" then
+                return child
+            end
+        end
+
+        return nil
+    end
+
+    -- verbose = report every step instead of failing quietly, used by the
+    -- test button. The farm calls it silently.
+    local function attack(verbose)
         local char = getChar()
         local tool = char and char:FindFirstChildOfClass("Tool")
 
+        -- the remote registers the swing, the tool actually performs it
         if tool then
-            pcall(function() tool:Activate() end)
-        elseif not attackWarned then
-            warn("[BrainrotPolice] nothing equipped, cannot attack")
-            attackWarned = true
+            local ok, err = pcall(function() tool:Activate() end)
+            if verbose then
+                print("[BrainrotPolice] Activate " .. tool.Name .. " -> " .. tostring(ok or err))
+            end
+        elseif verbose then
+            warn("[BrainrotPolice] no tool equipped")
         end
 
-        -- throttle, firing this every single frame is both pointless and
-        -- the fastest way to get flagged
+        local ra = attackRemote()
+
+        if not ra then
+            if verbose then
+                warn("[BrainrotPolice] RE/RegisterAttack NOT FOUND")
+            end
+            return false
+        end
+
+        if verbose then
+            print("[BrainrotPolice] firing " .. ra:GetFullName())
+        end
+
+        local ok, err = pcall(function()
+            ra:FireServer(ATTACK_ARG)
+        end)
+
+        if verbose then
+            if ok then
+                print("[BrainrotPolice] FireServer(" .. ATTACK_ARG .. ") sent")
+            else
+                warn("[BrainrotPolice] FireServer failed: " .. tostring(err))
+            end
+        end
+
+        return ok
+    end
+
+    -- throttled wrapper for the farm loop
+    local function attackThrottled()
         local now = tick()
         if now - lastSwing < 0.12 then return end
         lastSwing = now
-
-        pcall(function()
-            local ra = netRemote("RE/RegisterAttack")
-            if ra then
-                ra:FireServer(ATTACK_ARG)
-            elseif not attackWarned then
-                warn("[BrainrotPolice] RE/RegisterAttack not found")
-                attackWarned = true
-            end
-        end)
+        attack(false)
     end
 
     ----------------------------------------------------------------
@@ -305,7 +354,7 @@ return function(section, data)
         env.setconfig("flyspeed", n)
     end)
 
-    elements:Textbox("Hover Height (default 4)", section, tostring(hoverHeight), function(v)
+    elements:Textbox("Hover Height (default 1)", section, tostring(hoverHeight), function(v)
         local n = tonumber(v)
         if not n then return end
         hoverHeight = n
@@ -342,25 +391,96 @@ return function(section, data)
 
     elements:Button("Test Attack Once", section, function()
         local char = getChar()
-        local tool = char and char:FindFirstChildOfClass("Tool")
-        local ra = netRemote("RE/RegisterAttack")
-
-        print("[BrainrotPolice] equipped tool: " .. (tool and tool.Name or "NONE"))
-        print("[BrainrotPolice] RegisterAttack: " .. (ra and ra:GetFullName() or "NOT FOUND"))
-
         local backpack = plr:FindFirstChildOfClass("Backpack")
+
+        print("---- BrainrotPolice attack test ----")
+        print("character: " .. (char and char.Name or "NONE"))
+
         if backpack then
             for _, t in pairs(backpack:GetChildren()) do
                 if t:IsA("Tool") then
                     print("  backpack tool: " .. t.Name)
                 end
             end
+        else
+            print("  no backpack")
         end
 
         equipWeapon()
-        task.wait(0.3)
-        attack()
-        print("[BrainrotPolice] swing sent")
+        task.wait(0.4)
+
+        local tool = char and char:FindFirstChildOfClass("Tool")
+        print("equipped now: " .. (tool and tool.Name or "NONE"))
+
+        -- list what the Net folder actually contains, the remote name has a
+        -- slash in it and is easy to miss
+        local modules = replicatedstorage:FindFirstChild("Modules")
+        local net = modules and modules:FindFirstChild("Net")
+        print("Modules.Net: " .. (net and "found" or "MISSING"))
+
+        if net then
+            local n = 0
+            for _, child in pairs(net:GetChildren()) do
+                if string.find(child.Name, "Attack", 1, true)
+                    or string.find(child.Name, "Hit", 1, true) then
+                    n = n + 1
+                    print("  combat remote: " .. child.ClassName .. " | " .. child.Name)
+                end
+            end
+            if n == 0 then
+                print("  no Attack/Hit remotes under Net")
+            end
+        end
+
+        -- verbose swing, reports every step
+        attack(true)
+        print("------------------------------------")
+    end)
+
+    -- Dumps ClientComponents.WeaponToolClient so the real swing path can be
+    -- read off instead of guessed.
+    elements:Button("Dump WeaponToolClient", section, function()
+        local cc = replicatedstorage:FindFirstChild("ClientComponents")
+        local wtc = cc and cc:FindFirstChild("WeaponToolClient")
+
+        if not wtc then
+            warn("[BrainrotPolice] ClientComponents.WeaponToolClient not found")
+            return
+        end
+
+        local out = {}
+        local function add(line)
+            out[#out + 1] = line
+            print(line)
+        end
+
+        add("PlaceId: " .. tostring(game.PlaceId))
+        add("== " .. wtc:GetFullName() .. " (" .. wtc.ClassName .. ")")
+
+        for _, d in pairs(wtc:GetDescendants()) do
+            add("  " .. d.ClassName .. " | " .. d.Name)
+        end
+
+        -- the source is what actually tells us how the swing is sent
+        local ok, src = pcall(function()
+            return decompile and decompile(wtc) or nil
+        end)
+
+        if ok and src then
+            add("== source ==")
+            add(src)
+        else
+            add("== source not available, executor cannot decompile ==")
+        end
+
+        local text = table.concat(out, "\n")
+
+        pcall(function()
+            writefile("BrainrotPolice/weapontool_" .. tostring(game.PlaceId) .. ".txt", text)
+        end)
+
+        local copied = pcall(function() setclipboard(text) end)
+        print("[BrainrotPolice] dump copied=" .. tostring(copied))
     end)
 
     -- starts off every session, this one moves the character
@@ -430,7 +550,7 @@ return function(section, data)
                                     end
                                 end
 
-                                attack()
+                                attackThrottled()
                             end)
 
                             if not ok then
