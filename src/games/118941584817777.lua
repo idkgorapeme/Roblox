@@ -121,49 +121,76 @@ return function(section, data)
     end)
 
     ----------------------------------------------------------------
-    -- auto buy
+    -- auto buy: wait for the shop restock event, buy the selected items
     ----------------------------------------------------------------
 
-    local function getRemoContainer()
-        local packages = replicatedstorage:FindFirstChild("Packages")
-        local index = packages and packages:FindFirstChild("_Index")
-        local remo = index and index:FindFirstChild("littensy_remo@1.5.3")
-        remo = remo and remo:FindFirstChild("remo")
-        return remo and remo:FindFirstChild("container")
-    end
-
-    local buyCategories = {
-        { key = "buy_mysterious", label = "Buy Mysterious", name = "Mysterious" },
-        { key = "buy_rare",       label = "Buy Rare",       name = "Rare" },
-        { key = "buy_uncommon",   label = "Buy Uncommon",   name = "Uncommon" },
-        { key = "buy_common",     label = "Buy Common",     name = "Common" },
+    local BUY_ORDER = { "Mysterious", "Rare", "Uncommon", "Common" }
+    local BUY_KEY = {
+        Mysterious = "buy_mysterious",
+        Rare       = "buy_rare",
+        Uncommon   = "buy_uncommon",
+        Common     = "buy_common",
     }
 
-    local buyEnabled = {}
-    for _, cat in ipairs(buyCategories) do
-        buyEnabled[cat.name] = setdata[cat.key] ~= false
+    local BUY_DELAY = 0.2
+
+    local buySelected = {}
+    for _, name in ipairs(BUY_ORDER) do
+        buySelected[name] = setdata[BUY_KEY[name]] ~= false
     end
 
-    local function doBuyRound()
-        local container = getRemoContainer()
-        local buyWins = container and container:FindFirstChild("BuyWins")
-        if not buyWins then return end
+    -- Searches the whole remo package, not just container's direct children,
+    -- which is why the old version never found the remotes.
+    local function findRemote(name)
+        local pkgs = replicatedstorage:FindFirstChild("Packages")
+        local index = pkgs and pkgs:FindFirstChild("_Index")
 
-        for _, cat in ipairs(buyCategories) do
-            if not env.AutoBuy then return end
-
-            if buyEnabled[cat.name] then
-                for _ = 1, buyAmount do
-                    if not env.AutoBuy then return end
-                    pcall(function()
-                        buyWins:FireServer(cat.name)
-                    end)
-                    task.wait(0.2)
+        if index then
+            for _, child in pairs(index:GetChildren()) do
+                if string.sub(child.Name, 1, 14) == "littensy_remo@" then
+                    local found = child:FindFirstChild(name, true)
+                    if found then return found end
                 end
-
-                task.wait(1)
             end
         end
+
+        return replicatedstorage:FindFirstChild(name, true)
+    end
+
+    local function fireBuy(itemName)
+        local buyWins = findRemote("BuyWins")
+        if not buyWins then return false end
+
+        return (pcall(function()
+            if typeof(buyWins) == "Instance" and buyWins:IsA("RemoteEvent") then
+                buyWins:FireServer(itemName)
+            elseif typeof(buyWins) == "Instance" and buyWins:IsA("RemoteFunction") then
+                buyWins:InvokeServer(itemName)
+            elseif typeof(buyWins) == "table" and type(buyWins.fire) == "function" then
+                buyWins:fire(itemName)
+            end
+        end))
+    end
+
+    local buyRunning = false
+
+    local function onRestock()
+        if buyRunning or not env.AutoBuy then return end
+        buyRunning = true
+
+        for _, itemName in ipairs(BUY_ORDER) do
+            if not env.AutoBuy then break end
+
+            if buySelected[itemName] then
+                for _ = 1, buyAmount do
+                    if not env.AutoBuy then break end
+                    fireBuy(itemName)
+                    task.wait(BUY_DELAY)
+                end
+            end
+        end
+
+        buyRunning = false
     end
 
     elements:Textbox("Buy Amount (default 5)", section, tostring(buyAmount), function(v)
@@ -173,43 +200,61 @@ return function(section, data)
         env.setconfig("buyamount", buyAmount)
     end)
 
-    for _, cat in ipairs(buyCategories) do
-        elements:Toggle(cat.label, section, setdata[cat.key] ~= false, function(v)
-            buyEnabled[cat.name] = v
-            env.setconfig(cat.key, v)
+    for _, itemName in ipairs(BUY_ORDER) do
+        elements:Toggle("Buy " .. itemName, section, buySelected[itemName], function(v)
+            buySelected[itemName] = v
+            env.setconfig(BUY_KEY[itemName], v)
         end)
     end
 
     local shopConn
+
     elements:Toggle("Auto Buy (on restock)", section, setdata.autobuy, function(v)
         env.AutoBuy = v
         env.setconfig("autobuy", v)
 
         if shopConn then
-            shopConn:Disconnect()
+            pcall(function() shopConn:Disconnect() end)
             shopConn = nil
         end
 
         if not v then return end
 
-        local container = getRemoContainer()
-        local shopUpdate = container and container:FindFirstChild("ShopUpdate")
+        local shopUpdate = findRemote("ShopUpdate")
 
-        if shopUpdate then
+        if not shopUpdate then
+            warn("[BrainrotPolice] ShopUpdate not found, Auto Buy cannot arm")
+            env.AutoBuy = false
+            return
+        end
+
+        if typeof(shopUpdate) == "Instance" and shopUpdate:IsA("RemoteEvent") then
             shopConn = shopUpdate.OnClientEvent:Connect(function()
-                if not env.AutoBuy then return end
-                task.spawn(doBuyRound)
+                task.spawn(onRestock)
             end)
 
             if env.BrainrotPolice and env.BrainrotPolice.track then
                 env.BrainrotPolice.track(shopConn)
             end
-        else
-            warn("[BrainrotPolice] ShopUpdate not found, auto buy will not trigger")
-        end
 
-        -- buy once right away so you do not wait a whole restock cycle
-        task.spawn(doBuyRound)
+            print("[BrainrotPolice] Auto Buy armed on " .. shopUpdate:GetFullName())
+        elseif typeof(shopUpdate) == "table" then
+            local connected = pcall(function()
+                local fn = shopUpdate.connect or shopUpdate.listen
+                if type(fn) == "function" then
+                    shopConn = fn(shopUpdate, function()
+                        task.spawn(onRestock)
+                    end)
+                end
+            end)
+
+            if connected then
+                print("[BrainrotPolice] Auto Buy armed on the remo listener")
+            else
+                warn("[BrainrotPolice] could not connect to ShopUpdate")
+                env.AutoBuy = false
+            end
+        end
     end)
 
     ----------------------------------------------------------------
@@ -488,12 +533,34 @@ return function(section, data)
         env.World2Help = v
         env.setconfig("world2help", v)
 
-        if v then
-            pcall(buildWorld2Help)
-        else
+        if not v then
             local folder = workspace:FindFirstChild("World2HelpFolder")
             if folder then pcall(function() folder:Destroy() end) end
+            return
         end
+
+        local ok, folder = pcall(buildWorld2Help)
+        if ok and folder then
+            print("[BrainrotPolice] World 2 Help: built "
+                .. (#flatPlatforms + #slopes) .. " platforms")
+        else
+            warn("[BrainrotPolice] World 2 Help failed to build")
+            return
+        end
+
+        -- the game strips parts it does not own, so rebuild them if they
+        -- disappear instead of silently leaving the player with nothing
+        task.spawn(function()
+            while env.World2Help do
+                local existing = workspace:FindFirstChild("World2HelpFolder")
+
+                if not existing or #existing:GetChildren() < (#flatPlatforms + #slopes) then
+                    pcall(buildWorld2Help)
+                end
+
+                task.wait(2)
+            end
+        end)
     end)
 
     ----------------------------------------------------------------
@@ -518,13 +585,37 @@ return function(section, data)
         { "Stage15", "Levels", "MovingWalls", "MovingWalls" },
     }
 
+    -- walks the exact path, then falls back to a deep search by the last name.
+    -- the stages are often nested under a Map/World folder rather than sitting
+    -- directly in workspace, which is why the strict path found nothing.
     local function resolve(path)
         local node = workspace
         for _, name in ipairs(path) do
             node = node:FindFirstChild(name)
-            if not node then return nil end
+            if not node then
+                node = nil
+                break
+            end
         end
-        return node
+
+        if node then return node end
+
+        local last = path[#path]
+
+        -- try the parent chain from anywhere in the tree
+        if #path > 1 then
+            local parent = workspace:FindFirstChild(path[1], true)
+            if parent then
+                local cur = parent
+                for i = 2, #path do
+                    cur = cur:FindFirstChild(path[i], true)
+                    if not cur then break end
+                end
+                if cur then return cur end
+            end
+        end
+
+        return workspace:FindFirstChild(last, true)
     end
 
     elements:Toggle("World 2 Destroy", section, setdata.world2destroy, function(v)
@@ -532,17 +623,33 @@ return function(section, data)
         env.setconfig("world2destroy", v)
         if not v then return end
 
-        while env.World2Destroy do
-            for _, path in ipairs(destroyTargets) do
-                if not env.World2Destroy then break end
-                pcall(function()
-                    local target = resolve(path)
-                    if target then target:Destroy() end
-                end)
-            end
+        -- MUST run in its own thread. running the loop straight in the toggle
+        -- callback blocked the ui thread and froze everything below it.
+        task.spawn(function()
+            local announced = false
 
-            task.wait(0.5)
-        end
+            while env.World2Destroy do
+                local killed = 0
+
+                for _, path in ipairs(destroyTargets) do
+                    if not env.World2Destroy then break end
+                    pcall(function()
+                        local target = resolve(path)
+                        if target then
+                            target:Destroy()
+                            killed = killed + 1
+                        end
+                    end)
+                end
+
+                if not announced then
+                    print("[BrainrotPolice] World 2 Destroy: removed " .. killed .. " objects")
+                    announced = true
+                end
+
+                task.wait(0.5)
+            end
+        end)
     end)
 
     ----------------------------------------------------------------
