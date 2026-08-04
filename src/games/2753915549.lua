@@ -17,12 +17,14 @@ return function(section, data)
     setdata.flyspeed = setdata.flyspeed or 120
     setdata.height = setdata.height or 1
     setdata.range = setdata.range or 5000
+    setdata.slot = setdata.slot or 1
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
     local flySpeed = tonumber(setdata.flyspeed) or 120
     local hoverHeight = tonumber(setdata.height) or 1
     local maxRange = tonumber(setdata.range) or 5000
+    local weaponSlot = tonumber(setdata.slot) or 1
 
     local function getChar()
         return plr.Character
@@ -241,20 +243,64 @@ return function(section, data)
 
     -- puts the melee or sword back in hand, the server ignores hits
     -- from an unequipped character
+    -- Tools in the backpack come back in arbitrary order, so "first tool
+    -- found" was picking the wrong one. Collect them and index by slot.
+    local function backpackTools()
+        local backpack = plr:FindFirstChildOfClass("Backpack")
+        if not backpack then return {} end
+
+        local tools = {}
+        for _, tool in pairs(backpack:GetChildren()) do
+            if tool:IsA("Tool") then
+                tools[#tools + 1] = tool
+            end
+        end
+
+        -- stable order so slot numbers mean the same thing every time
+        table.sort(tools, function(a, b)
+            return a.Name < b.Name
+        end)
+
+        return tools
+    end
+
+    local SLOT_KEYS = {
+        Enum.KeyCode.One, Enum.KeyCode.Two, Enum.KeyCode.Three,
+        Enum.KeyCode.Four, Enum.KeyCode.Five, Enum.KeyCode.Six,
+        Enum.KeyCode.Seven, Enum.KeyCode.Eight, Enum.KeyCode.Nine,
+    }
+
+    -- presses the number key, which is how the game itself equips a slot
+    local function pressSlotKey(slot)
+        local key = SLOT_KEYS[slot]
+        if not key then return end
+
+        pcall(function()
+            local vim = game:GetService("VirtualInputManager")
+            vim:SendKeyEvent(true, key, false, game)
+            task.wait(0.05)
+            vim:SendKeyEvent(false, key, false, game)
+        end)
+    end
+
     local function equipWeapon()
         local char = getChar()
         local hum = getHum()
-        local backpack = plr:FindFirstChildOfClass("Backpack")
-        if not char or not hum or not backpack then return end
+        if not char or not hum then return end
 
         -- already holding something
         if char:FindFirstChildOfClass("Tool") then return end
 
-        for _, tool in pairs(backpack:GetChildren()) do
-            if tool:IsA("Tool") then
-                pcall(function() hum:EquipTool(tool) end)
-                return
-            end
+        local tools = backpackTools()
+        local tool = tools[weaponSlot] or tools[1]
+
+        if tool then
+            pcall(function() hum:EquipTool(tool) end)
+        end
+
+        -- keyboard fallback, some games only react to the real keybind
+        if not char:FindFirstChildOfClass("Tool") then
+            pressSlotKey(weaponSlot)
         end
     end
 
@@ -368,6 +414,13 @@ return function(section, data)
         env.setconfig("range", n)
     end)
 
+    elements:Textbox("Weapon Slot (default 1)", section, tostring(weaponSlot), function(v)
+        local n = tonumber(v)
+        if not n or n < 1 or n > 9 then return end
+        weaponSlot = math.floor(n)
+        env.setconfig("slot", weaponSlot)
+    end)
+
     elements:Button("Count Enemies", section, function()
         local folder = workspace:FindFirstChild("Enemies")
         print("[BrainrotPolice] workspace.Enemies: " .. tostring(folder ~= nil))
@@ -397,10 +450,13 @@ return function(section, data)
         print("character: " .. (char and char.Name or "NONE"))
 
         if backpack then
-            for _, t in pairs(backpack:GetChildren()) do
-                if t:IsA("Tool") then
-                    print("  backpack tool: " .. t.Name)
-                end
+            local tools = backpackTools()
+            if #tools == 0 then
+                print("  backpack has no tools")
+            end
+            for i, t in ipairs(tools) do
+                local mark = (i == weaponSlot) and "  <-- selected slot" or ""
+                print("  slot " .. i .. ": " .. t.Name .. mark)
             end
         else
             print("  no backpack")
