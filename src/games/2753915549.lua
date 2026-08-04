@@ -15,13 +15,13 @@ return function(section, data)
     local setdata = data[tostring(game.PlaceId)] or {}
     setdata.farm = setdata.farm or false
     setdata.flyspeed = setdata.flyspeed or 120
-    setdata.height = setdata.height or 12
+    setdata.height = setdata.height or 4
     setdata.range = setdata.range or 5000
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
     local flySpeed = tonumber(setdata.flyspeed) or 120
-    local hoverHeight = tonumber(setdata.height) or 12
+    local hoverHeight = tonumber(setdata.height) or 4
     local maxRange = tonumber(setdata.range) or 5000
 
     local function getChar()
@@ -202,23 +202,37 @@ return function(section, data)
     -- moves toward a point at flySpeed, returns true once close enough
     local function glideStep(targetPos, arriveAt)
         local root = ensureFlight()
-        if not root then return false end
+        if not root or not flyBV then return false end
+
+        arriveAt = arriveAt or 4
 
         local delta = targetPos - root.Position
         local dist = delta.Magnitude
 
-        if dist < (arriveAt or 6) then
-            if flyBV then flyBV.Velocity = Vector3.zero end
+        -- a zero length vector has no .Unit, it would produce NaN and throw
+        -- the character into the void
+        if dist < 0.05 then
+            flyBV.Velocity = Vector3.zero
             return true
         end
 
-        flyBV.Velocity = delta.Unit * flySpeed
-
-        if flyBG then
-            flyBG.CFrame = CFrame.new(root.Position, targetPos)
+        if dist <= arriveAt then
+            flyBV.Velocity = Vector3.zero
+            return true
         end
 
-        return false
+        -- slow down on approach instead of overshooting past the mob
+        local speed = math.min(flySpeed, dist * 4)
+        flyBV.Velocity = delta.Unit * speed
+
+        if flyBG then
+            local look = Vector3.new(targetPos.X, root.Position.Y, targetPos.Z)
+            if (look - root.Position).Magnitude > 0.1 then
+                flyBG.CFrame = CFrame.new(root.Position, look)
+            end
+        end
+
+        return dist <= arriveAt
     end
 
     ----------------------------------------------------------------
@@ -247,10 +261,36 @@ return function(section, data)
     -- captured from a real swing: RE/RegisterAttack:FireServer(0.5)
     local ATTACK_ARG = 0.5
 
+    local attackWarned = false
+    local lastSwing = 0
+
     local function attack()
+        -- the remote alone does not swing anything, the equipped tool has to
+        -- be activated too, that is what actually starts the attack
+        local char = getChar()
+        local tool = char and char:FindFirstChildOfClass("Tool")
+
+        if tool then
+            pcall(function() tool:Activate() end)
+        elseif not attackWarned then
+            warn("[BrainrotPolice] nothing equipped, cannot attack")
+            attackWarned = true
+        end
+
+        -- throttle, firing this every single frame is both pointless and
+        -- the fastest way to get flagged
+        local now = tick()
+        if now - lastSwing < 0.12 then return end
+        lastSwing = now
+
         pcall(function()
             local ra = netRemote("RE/RegisterAttack")
-            if ra then ra:FireServer(ATTACK_ARG) end
+            if ra then
+                ra:FireServer(ATTACK_ARG)
+            elseif not attackWarned then
+                warn("[BrainrotPolice] RE/RegisterAttack not found")
+                attackWarned = true
+            end
         end)
     end
 
@@ -265,7 +305,7 @@ return function(section, data)
         env.setconfig("flyspeed", n)
     end)
 
-    elements:Textbox("Hover Height (default 12)", section, tostring(hoverHeight), function(v)
+    elements:Textbox("Hover Height (default 4)", section, tostring(hoverHeight), function(v)
         local n = tonumber(v)
         if not n then return end
         hoverHeight = n
@@ -298,6 +338,29 @@ return function(section, data)
         end
 
         print("[BrainrotPolice] " .. n .. " models, " .. valid .. " alive and targetable")
+    end)
+
+    elements:Button("Test Attack Once", section, function()
+        local char = getChar()
+        local tool = char and char:FindFirstChildOfClass("Tool")
+        local ra = netRemote("RE/RegisterAttack")
+
+        print("[BrainrotPolice] equipped tool: " .. (tool and tool.Name or "NONE"))
+        print("[BrainrotPolice] RegisterAttack: " .. (ra and ra:GetFullName() or "NOT FOUND"))
+
+        local backpack = plr:FindFirstChildOfClass("Backpack")
+        if backpack then
+            for _, t in pairs(backpack:GetChildren()) do
+                if t:IsA("Tool") then
+                    print("  backpack tool: " .. t.Name)
+                end
+            end
+        end
+
+        equipWeapon()
+        task.wait(0.3)
+        attack()
+        print("[BrainrotPolice] swing sent")
     end)
 
     -- starts off every session, this one moves the character
@@ -343,18 +406,37 @@ return function(section, data)
                         -- chase and hit until it dies or despawns. the flight
                         -- is never stopped, so we roll straight into the next
                         -- target without falling.
+                        --
+                        -- the whole body is pcall'd: an unguarded error in
+                        -- here kills the thread, which looks exactly like the
+                        -- toggle switching itself off when you reach a mob.
                         while env.BFFarm and isValidEnemy(mob) and alive() do
-                            local root = enemyRoot(mob)
-                            if not root then break end
+                            local ok, err = pcall(function()
+                                local root = enemyRoot(mob)
+                                if not root then return end
 
-                            -- sit above the mob so melee still reaches
-                            local target = root.Position + Vector3.new(0, hoverHeight, 0)
-                            glideStep(target, hoverHeight + 4)
+                                -- stay just beside the mob, close enough for
+                                -- melee to actually connect
+                                local target = root.Position + Vector3.new(0, hoverHeight, 0)
+                                glideStep(target, 4)
 
-                            -- swing the whole time, not only once in range.
-                            -- the server ignores out of range hits anyway and
-                            -- this keeps the attack animation looping.
-                            attack()
+                                -- face the mob so the swing lands
+                                local myRoot = getRoot()
+                                if myRoot and flyBG then
+                                    local look = Vector3.new(
+                                        root.Position.X, myRoot.Position.Y, root.Position.Z)
+                                    if (look - myRoot.Position).Magnitude > 0.1 then
+                                        flyBG.CFrame = CFrame.new(myRoot.Position, look)
+                                    end
+                                end
+
+                                attack()
+                            end)
+
+                            if not ok then
+                                warn("[BrainrotPolice] farm error: " .. tostring(err))
+                                task.wait(0.2)
+                            end
 
                             runservice.Heartbeat:Wait()
                         end
