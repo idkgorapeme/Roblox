@@ -7,7 +7,6 @@ return function(section, data)
     local players = game:GetService("Players")
     local replicatedstorage = game:GetService("ReplicatedStorage")
     local runservice = game:GetService("RunService")
-    local virtualuser = game:GetService("VirtualUser")
     local plr = players.LocalPlayer
 
     env.BFFarm = false
@@ -245,29 +244,13 @@ return function(section, data)
         end
     end
 
-    local function attack(mob)
-        local hum = mob:FindFirstChildOfClass("Humanoid")
-        local root = enemyRoot(mob)
-        if not hum or not root then return end
+    -- captured from a real swing: RE/RegisterAttack:FireServer(0.5)
+    local ATTACK_ARG = 0.5
 
-        -- 1. the normal attack registration pair
+    local function attack()
         pcall(function()
             local ra = netRemote("RE/RegisterAttack")
-            if ra then ra:FireServer(0) end
-        end)
-
-        pcall(function()
-            local rh = netRemote("RE/RegisterHit")
-            if rh then
-                rh:FireServer(hum, root.CFrame.Position)
-            end
-        end)
-
-        -- 2. click attack as a fallback, some weapons only respond to input
-        pcall(function()
-            virtualuser:CaptureController()
-            virtualuser:Button1Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
-            virtualuser:Button1Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+            if ra then ra:FireServer(ATTACK_ARG) end
         end)
     end
 
@@ -336,7 +319,9 @@ return function(section, data)
             while env.BFFarm do
                 -- wait out death and respawn instead of flinging the corpse
                 if not alive() then
-                    stopFlight()
+                    -- do not tear the movers down here, they get rebuilt on
+                    -- the new character by ensureFlight
+                    if flyBV then flyBV.Velocity = Vector3.zero end
                     task.wait(1)
                 else
                     local mob = nearestEnemy()
@@ -347,24 +332,29 @@ return function(section, data)
                             announced = true
                         end
 
-                        stopFlight()
-                        task.wait(1)
+                        -- keep hovering instead of dropping out of the sky
+                        ensureFlight()
+                        if flyBV then flyBV.Velocity = Vector3.zero end
+                        task.wait(0.5)
                     else
                         announced = false
                         equipWeapon()
 
-                        -- chase and hit until it dies or despawns
+                        -- chase and hit until it dies or despawns. the flight
+                        -- is never stopped, so we roll straight into the next
+                        -- target without falling.
                         while env.BFFarm and isValidEnemy(mob) and alive() do
                             local root = enemyRoot(mob)
                             if not root then break end
 
                             -- sit above the mob so melee still reaches
                             local target = root.Position + Vector3.new(0, hoverHeight, 0)
-                            local arrived = glideStep(target, hoverHeight + 4)
+                            glideStep(target, hoverHeight + 4)
 
-                            if arrived then
-                                attack(mob)
-                            end
+                            -- swing the whole time, not only once in range.
+                            -- the server ignores out of range hits anyway and
+                            -- this keeps the attack animation looping.
+                            attack()
 
                             runservice.Heartbeat:Wait()
                         end
