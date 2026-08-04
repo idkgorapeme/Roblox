@@ -173,6 +173,27 @@ return function(section, data)
         end
     end
 
+    -- keeps the speed counter ticking while we fly
+    local function sendWalking()
+        pcall(function()
+            local remotes = replicatedstorage:FindFirstChild("Remotes")
+            local ev = remotes and remotes:FindFirstChild("UpdateSpeed")
+            if ev then
+                ev:FireServer("Walking")
+            end
+        end)
+    end
+
+    -- fires UpdateSpeed on a loop for as long as keepAlive holds
+    local function startWalkingSpam(keepAlive)
+        task.spawn(function()
+            while keepAlive() do
+                sendWalking()
+                task.wait(0.1)
+            end
+        end)
+    end
+
     -- flies to an instance looked up by path
     local function flyToPath(keepAlive, ...)
         return flyTo(posOf(resolve(...)), keepAlive)
@@ -197,6 +218,7 @@ return function(section, data)
         task.spawn(function()
             local alive = function() return env.KEWin1 end
             startNoclip()
+            startWalkingSpam(alive)
 
             while env.KEWin1 do
                 flyToPath(alive, "Boards&Gamepass", "WinsLeaderboard")
@@ -242,6 +264,7 @@ return function(section, data)
         task.spawn(function()
             local alive = function() return env.KEWin2 end
             startNoclip()
+            startWalkingSpam(alive)
 
             while env.KEWin2 do
                 flyToPath(alive, "Boards&Gamepass", "WinsLeaderboard")
