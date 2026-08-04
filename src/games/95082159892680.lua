@@ -127,8 +127,17 @@ return function(section, data)
         return block:FindFirstChildWhichIsA("BasePart", true)
     end
 
-    -- noclip so walls and stage geometry cannot block the flight
+    ----------------------------------------------------------------
+    -- flight engine
+    --
+    -- Uses a BodyVelocity / BodyGyro pair instead of writing CFrame every
+    -- frame. That is what a normal fly script does: physics still owns the
+    -- character, so nothing has to be anchored and PlatformStand is never
+    -- touched. Releasing the movers hands control straight back to the player.
+    ----------------------------------------------------------------
+
     local noclipConn
+    local flyBV, flyBG
 
     local function startNoclip()
         if noclipConn then return end
@@ -161,15 +170,78 @@ return function(section, data)
                 end
             end
         end
+    end
 
-        local hum = char and char:FindFirstChildOfClass("Humanoid")
-        if hum then
-            hum.PlatformStand = false
-            -- Physics state leaves the character limp and unmovable
-            pcall(function()
-                hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-            end)
+    -- removes the movers and fully restores normal control
+    local function stopFlight()
+        if flyBV then
+            pcall(function() flyBV:Destroy() end)
+            flyBV = nil
         end
+        if flyBG then
+            pcall(function() flyBG:Destroy() end)
+            flyBG = nil
+        end
+
+        pcall(function()
+            local char = plr.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            if root then
+                root.Anchored = false
+                root.AssemblyLinearVelocity = Vector3.zero
+                root.AssemblyAngularVelocity = Vector3.zero
+            end
+
+            -- clean out anything an earlier build may have left behind
+            if root then
+                for _, n in ipairs({ "BPFly", "BPFlyGyro" }) do
+                    local old = root:FindFirstChild(n)
+                    if old then old:Destroy() end
+                end
+            end
+
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                hum.PlatformStand = false
+                hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+            end
+        end)
+    end
+
+    -- creates the movers if they are missing, e.g. after a respawn
+    local function ensureFlight()
+        local root = getRoot()
+        if not root then return nil end
+
+        if flyBV and flyBV.Parent ~= root then
+            pcall(function() flyBV:Destroy() end)
+            flyBV = nil
+        end
+        if flyBG and flyBG.Parent ~= root then
+            pcall(function() flyBG:Destroy() end)
+            flyBG = nil
+        end
+
+        if not flyBV then
+            flyBV = Instance.new("BodyVelocity")
+            flyBV.Name = "BPFly"
+            flyBV.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+            flyBV.P = 1e4
+            flyBV.Velocity = Vector3.zero
+            flyBV.Parent = root
+        end
+
+        if not flyBG then
+            flyBG = Instance.new("BodyGyro")
+            flyBG.Name = "BPFlyGyro"
+            flyBG.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+            flyBG.P = 1e4
+            flyBG.D = 500
+            flyBG.CFrame = root.CFrame
+            flyBG.Parent = root
+        end
+
+        return root
     end
 
     -- flies to a position, returns true on arrival
@@ -177,33 +249,53 @@ return function(section, data)
         if not targetPos then return false end
 
         while keepAlive() do
-            local root = getRoot()
-            if not root then return false end
+            local root = ensureFlight()
+            if not root then
+                task.wait(0.1)
+            else
+                local delta = targetPos - root.Position
+                local dist = delta.Magnitude
 
-            local delta = targetPos - root.Position
-            local dist = delta.Magnitude
+                if dist < 4 then
+                    if flyBV then flyBV.Velocity = Vector3.zero end
+                    return true
+                end
 
-            if dist < 4 then
-                root.CFrame = CFrame.new(targetPos)
-                root.AssemblyLinearVelocity = Vector3.zero
-                return true
+                -- constant speed toward the target, physics does the moving
+                flyBV.Velocity = delta.Unit * flySpeed
+
+                if flyBG then
+                    flyBG.CFrame = CFrame.new(root.Position, targetPos)
+                end
+
+                runservice.Heartbeat:Wait()
             end
-
-            local dt = runservice.Heartbeat:Wait()
-            local step = math.min(flySpeed * dt, dist)
-
-            root.CFrame = CFrame.new(root.Position + delta.Unit * step)
-            root.AssemblyLinearVelocity = Vector3.zero
-
-            local hum = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
-            if hum then hum.PlatformStand = true end
         end
 
         return false
     end
 
-    -- lands on the block: collision back on, pinned in place briefly
+    -- hovers on the spot, used while waiting for a hazard
+    local function hover(pos, keepAlive)
+        local root = ensureFlight()
+        if not root then return end
+
+        if flyBV then
+            -- counteract gravity by holding zero velocity
+            flyBV.Velocity = Vector3.zero
+        end
+
+        if pos then
+            local delta = pos - root.Position
+            if delta.Magnitude > 2 then
+                flyBV.Velocity = delta.Unit * math.min(flySpeed, delta.Magnitude * 4)
+            end
+        end
+    end
+
+    -- lands on the block: movers off, collision back on
     local function dropOnto(part, keepAlive)
+        stopFlight()
         stopNoclip()
 
         local elapsed = 0
@@ -218,6 +310,10 @@ return function(section, data)
         end
     end
 
+    ----------------------------------------------------------------
+    -- tsunami gate
+    ----------------------------------------------------------------
+
     -- workspace["NPC & Piege"].Tsunami1.Tsunami
     local function tsunamiPart()
         local npc = workspace:FindFirstChild("NPC & Piege")
@@ -229,15 +325,11 @@ return function(section, data)
         return t:FindFirstChildWhichIsA("BasePart", true)
     end
 
-    -- blocks until the tsunami has passed x = -150.
-    -- the wave can travel either way, so we remember which side it started
-    -- on and wait for it to cross over, instead of assuming a direction.
     local TSUNAMI_X = -150
 
-    -- Holds the character perfectly still in the air until the tsunami passes.
-    -- Setting the CFrame on a timer is not enough, gravity still acts between
-    -- updates, so the root part is ANCHORED for the whole wait. Nothing can
-    -- pull us down while anchored.
+    -- Hovers in place until the tsunami passes. No anchoring and no
+    -- PlatformStand, the body movers hold us up, so control comes straight
+    -- back when they are removed.
     local function waitForTsunami(keepAlive, holdPos)
         local part = tsunamiPart()
 
@@ -246,65 +338,18 @@ return function(section, data)
             return
         end
 
-        local root = getRoot()
-        local hum = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
-
-        -- park us on the spot and freeze
-        if root and holdPos then
-            root.CFrame = CFrame.new(holdPos)
-            root.AssemblyLinearVelocity = Vector3.zero
-            root.AssemblyAngularVelocity = Vector3.zero
-        end
-
-        if hum then
-            hum.PlatformStand = true
-            pcall(function()
-                hum:ChangeState(Enum.HumanoidStateType.Physics)
-            end)
-        end
-
-        if root then
-            root.Anchored = true
-        end
-
-        -- give the character back to the player: unanchor AND undo the
-        -- humanoid state, otherwise PlatformStand / Physics keep input dead
-        local function unfreeze()
-            local r = getRoot()
-            if r then
-                r.Anchored = false
-                r.AssemblyLinearVelocity = Vector3.zero
-            end
-
-            local h = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
-            if h then
-                h.PlatformStand = false
-                pcall(function()
-                    h:ChangeState(Enum.HumanoidStateType.GettingUp)
-                end)
-            end
-        end
-
         local startedBelow = part.Position.X < TSUNAMI_X
-        print(("[BrainrotPolice] holding above the block, waiting for tsunami to pass x=%d (now %.1f)")
+        print(("[BrainrotPolice] hovering, waiting for tsunami to pass x=%d (now %.1f)")
             :format(TSUNAMI_X, part.Position.X))
 
         while keepAlive() do
-            -- a respawn gives us a brand new root, so re-anchor it
-            local r = getRoot()
-            if r and not r.Anchored then
-                if holdPos then
-                    r.CFrame = CFrame.new(holdPos)
-                end
-                r.Anchored = true
-            end
+            hover(holdPos, keepAlive)
 
             part = tsunamiPart()
 
             -- the wave despawning also counts as passed
             if not part or not part.Parent then
                 print("[BrainrotPolice] tsunami gone, continuing")
-                unfreeze()
                 return
             end
 
@@ -313,15 +358,11 @@ return function(section, data)
 
             if nowBelow ~= startedBelow then
                 print(("[BrainrotPolice] tsunami passed x=%d (at %.1f)"):format(TSUNAMI_X, x))
-                unfreeze()
                 return
             end
 
-            task.wait(0.1)
+            runservice.Heartbeat:Wait()
         end
-
-        -- toggled off mid wait
-        unfreeze()
     end
 
     elements:Textbox("Fly Speed (default 120)", section, tostring(flySpeed), function(v)
@@ -342,11 +383,7 @@ return function(section, data)
         env.KSWin = v
         env.setconfig("autowin", v)
         if not v then
-            -- never leave the character frozen or unmovable
-            pcall(function()
-                local root = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
-                if root then root.Anchored = false end
-            end)
+            stopFlight()
             stopNoclip()
             return
         end
@@ -407,6 +444,9 @@ return function(section, data)
                         if i == chosenWin then
                             print("[BrainrotPolice] dropping on " .. def.name)
                             dropOnto(part, alive)
+                            if env.KSWin then
+                                startNoclip()
+                            end
                         end
                     else
                         warn("[BrainrotPolice] " .. def.name .. " not found in workspace.Structure")
@@ -418,10 +458,7 @@ return function(section, data)
                 task.wait(1)
             end
 
-            pcall(function()
-                local root = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
-                if root then root.Anchored = false end
-            end)
+            stopFlight()
             stopNoclip()
         end)
     end)
