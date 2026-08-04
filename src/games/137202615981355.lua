@@ -79,21 +79,45 @@ return function(section, data)
     ----------------------------------------------------------------
 
     local ceilingPart
+    local ceilingCFrame
+    local ceilingWatch
 
     local function removeCeiling()
+        if ceilingWatch then
+            ceilingWatch:Disconnect()
+            ceilingWatch = nil
+        end
+
         if ceilingPart then
             pcall(function() ceilingPart:Destroy() end)
             ceilingPart = nil
         end
+
+        ceilingCFrame = nil
     end
 
-    -- Placed once, where the player is standing when the farm is switched on,
-    -- and then left alone. It does not follow the character.
+    -- also clears anything left over from an earlier run of the script
+    local function purgeOldCeilings()
+        for _, c in pairs(workspace:GetChildren()) do
+            if c.Name == "BPJumpCeiling" and c ~= ceilingPart then
+                pcall(function() c:Destroy() end)
+            end
+        end
+    end
+
+    -- Placed ONCE where the player stands when the farm is switched on.
+    -- The spawn CFrame is remembered and actively restored, so neither the
+    -- game nor anything else can drag it along with the character.
     local function buildCeiling()
         removeCeiling()
+        purgeOldCeilings()
 
         local root = getRoot()
         if not root then return false end
+
+        -- frozen copy of the spawn position, not a live reference
+        local px, py, pz = root.Position.X, root.Position.Y, root.Position.Z
+        ceilingCFrame = CFrame.new(px, py + ceilingHeight, pz)
 
         local part = Instance.new("Part")
         part.Name = "BPJumpCeiling"
@@ -105,10 +129,27 @@ return function(section, data)
         part.Color = Color3.fromRGB(0, 170, 255)
         part.TopSurface = Enum.SurfaceType.Smooth
         part.BottomSurface = Enum.SurfaceType.Smooth
-        part.CFrame = CFrame.new(root.Position + Vector3.new(0, ceilingHeight, 0))
+        part.CFrame = ceilingCFrame
         part.Parent = workspace
 
         ceilingPart = part
+
+        -- watchdog: if anything moves or unanchors it, put it straight back
+        ceilingWatch = part:GetPropertyChangedSignal("CFrame"):Connect(function()
+            if not ceilingCFrame or not ceilingPart then return end
+
+            if (ceilingPart.CFrame.Position - ceilingCFrame.Position).Magnitude > 0.05 then
+                ceilingPart.CFrame = ceilingCFrame
+            end
+        end)
+
+        if env.BrainrotPolice and env.BrainrotPolice.track then
+            env.BrainrotPolice.track(ceilingWatch)
+        end
+
+        print(("[BrainrotPolice] ceiling locked at %.1f, %.1f, %.1f")
+            :format(px, py + ceilingHeight, pz))
+
         return true
     end
 
@@ -124,6 +165,26 @@ return function(section, data)
         if not n or n < 1 then return end
         ceilingHeight = n
         env.setconfig("ceiling", n)
+    end)
+
+    elements:Button("Move Ceiling To Me", section, function()
+        if not env.JHJump then
+            warn("[BrainrotPolice] enable Jump Farm first")
+            return
+        end
+        buildCeiling()
+    end)
+
+    elements:Button("Where Is Ceiling", section, function()
+        if not ceilingPart or not ceilingPart.Parent then
+            print("[BrainrotPolice] no ceiling placed")
+            return
+        end
+
+        local root = getRoot()
+        print(("[BrainrotPolice] ceiling at %s"):format(tostring(ceilingPart.Position)))
+        print(("[BrainrotPolice] you at      %s"):format(root and tostring(root.Position) or "no character"))
+        print("[BrainrotPolice] anchored: " .. tostring(ceilingPart.Anchored))
     end)
 
     -- starts off every session, it spawns a part and moves the character
