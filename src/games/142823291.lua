@@ -11,16 +11,21 @@ return function(section, data)
     env.MMCoins = false
     env.MMCoinEsp = false
     env.MMMyRole = false
+    env.MMAllRoles = false
+    env.MMCoinMoveMode = "Teleport"   -- "Teleport" or "Walk"
 
     local setdata = data[tostring(game.PlaceId)] or {}
     setdata.coins = setdata.coins or false
     setdata.coinesp = setdata.coinesp or false
     setdata.coindelay = setdata.coindelay or 0.12
     setdata.myrole = setdata.myrole or false
+    setdata.allroles = setdata.allroles or false
+    setdata.coinmovemode = setdata.coinmovemode or "Teleport"
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
     local coinDelay = tonumber(setdata.coindelay) or 0.12
+    local coinMoveMode = setdata.coinmovemode or "Teleport"
 
     local function getRoot()
         local char = plr.Character
@@ -92,6 +97,12 @@ return function(section, data)
         env.setconfig("coindelay", n)
     end)
 
+    -- Movement mode dropdown
+    elements:Dropdown("Movement Mode", section, {"Teleport", "Walk"}, coinMoveMode, function(v)
+        coinMoveMode = v
+        env.setconfig("coinmovemode", v)
+    end)
+
     elements:Toggle("Auto Collect Coins", section, setdata.coins, function(v)
         env.MMCoins = v
         env.setconfig("coins", v)
@@ -102,8 +113,9 @@ return function(section, data)
 
             while env.MMCoins do
                 local root = getRoot()
+                local humanoid = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
 
-                if root then
+                if root and humanoid then
                     local coins = findCoins()
 
                     if not announced then
@@ -114,34 +126,50 @@ return function(section, data)
                         announced = true
                     end
 
-                    -- come back afterwards so we do not end up across the map
                     local origin = root.CFrame
 
                     for _, c in ipairs(coins) do
                         if not env.MMCoins then break end
 
                         if c.part and c.part.Parent then
-                            local r = getRoot()
-                            if r then
-                                r.CFrame = CFrame.new(c.part.Position)
-                                r.AssemblyLinearVelocity = Vector3.zero
+                            if coinMoveMode == "Teleport" then
+                                -- Instant teleport (original behaviour)
+                                root.CFrame = CFrame.new(c.part.Position)
+                                root.AssemblyLinearVelocity = Vector3.zero
 
                                 if firetouchinterest then
                                     pcall(function()
-                                        firetouchinterest(r, c.part, 0)
-                                        firetouchinterest(r, c.part, 1)
+                                        firetouchinterest(root, c.part, 0)
+                                        firetouchinterest(root, c.part, 1)
                                     end)
                                 end
 
+                                task.wait(coinDelay)
+                            else
+                                -- Walk to coin
+                                humanoid:MoveTo(c.part.Position)
+                                -- Wait until close to coin or timeout
+                                local timeout = 5
+                                local start = tick()
+                                while env.MMCoins and c.part and c.part.Parent and root do
+                                    local dist = (root.Position - c.part.Position).Magnitude
+                                    if dist < 4 then break end
+                                    if tick() - start > timeout then break end
+                                    task.wait(0.1)
+                                end
+                                -- Small pause to ensure touch triggers
                                 task.wait(coinDelay)
                             end
                         end
                     end
 
-                    local r = getRoot()
-                    if r then
-                        r.CFrame = origin
-                        r.AssemblyLinearVelocity = Vector3.zero
+                    -- Return to start if teleporting, but not if walking (you'll be where you last walked)
+                    if coinMoveMode == "Teleport" then
+                        local r = getRoot()
+                        if r then
+                            r.CFrame = origin
+                            r.AssemblyLinearVelocity = Vector3.zero
+                        end
                     end
                 end
 
@@ -210,12 +238,37 @@ return function(section, data)
     end)
 
     ----------------------------------------------------------------
-    -- own role display
-    --
-    -- Shows YOUR OWN role above YOUR OWN head only. This is information
-    -- you already have, it reads your own tools and nobody else's.
+    -- role detection (works on any player)
     ----------------------------------------------------------------
+    local function getPlayerRole(player)
+        local char = player.Character
+        local backpack = player:FindFirstChildOfClass("Backpack")
 
+        local function scan(container)
+            if not container then return nil end
+            for _, tool in pairs(container:GetChildren()) do
+                if tool:IsA("Tool") then
+                    local n = string.lower(tool.Name)
+                    if string.find(n, "knife", 1, true)
+                        or string.find(n, "blade", 1, true) then
+                        return "MURDERER"
+                    end
+                    if string.find(n, "gun", 1, true)
+                        or string.find(n, "revolver", 1, true)
+                        or string.find(n, "pistol", 1, true) then
+                        return "SHERIFF"
+                    end
+                end
+            end
+            return nil
+        end
+
+        return scan(char) or scan(backpack) or "INNOCENT"
+    end
+
+    ----------------------------------------------------------------
+    -- own role display (unchanged, but using common function)
+    ----------------------------------------------------------------
     local roleGui
 
     local function clearRoleGui()
@@ -224,76 +277,6 @@ return function(section, data)
             roleGui = nil
         end
     end
-
-    -- murderer carries a knife, sheriff carries a gun, otherwise innocent.
-    -- only ever looks at our own character and backpack.
-    local function myRole()
-        local char = plr.Character
-        local backpack = plr:FindFirstChildOfClass("Backpack")
-
-        local function scan(container)
-            if not container then return nil end
-
-            for _, tool in pairs(container:GetChildren()) do
-                if tool:IsA("Tool") then
-                    local n = string.lower(tool.Name)
-
-                    if string.find(n, "knife", 1, true)
-                        or string.find(n, "blade", 1, true) then
-                        return "MURDERER"
-                    end
-
-                    if string.find(n, "gun", 1, true)
-                        or string.find(n, "revolver", 1, true)
-                        or string.find(n, "pistol", 1, true) then
-                        return "SHERIFF"
-                    end
-                end
-            end
-
-            return nil
-        end
-
-        local found = scan(char) or scan(backpack)
-        if found then return found end
-
-        return "INNOCENT"
-    end
-
-    -- prints our own tools so the detection can be matched to real names
-    elements:Button("Debug My Role", section, function()
-        local char = plr.Character
-        local backpack = plr:FindFirstChildOfClass("Backpack")
-
-        print("[BrainrotPolice] character: " .. (char and char.Name or "NONE"))
-        print("[BrainrotPolice] head: "
-            .. tostring(char and char:FindFirstChild("Head") ~= nil))
-
-        local function list(label, container)
-            if not container then
-                print("  " .. label .. ": missing")
-                return
-            end
-
-            local n = 0
-            for _, c in pairs(container:GetChildren()) do
-                if c:IsA("Tool") then
-                    n = n + 1
-                    print("  " .. label .. " tool: " .. c.Name)
-                end
-            end
-
-            if n == 0 then
-                print("  " .. label .. ": no tools")
-            end
-        end
-
-        list("character", char)
-        list("backpack", backpack)
-
-        print("[BrainrotPolice] detected role: " .. myRole())
-        print("[BrainrotPolice] gui exists: " .. tostring(roleGui ~= nil and roleGui.Parent ~= nil))
-    end)
 
     local ROLE_COLOR = {
         MURDERER = Color3.fromRGB(255, 60, 60),
@@ -341,7 +324,6 @@ return function(section, data)
         task.spawn(function()
             while env.MMMyRole do
                 pcall(function()
-                    -- rebuild after a respawn
                     if not roleGui or not roleGui.Parent then
                         clearRoleGui()
                         roleGui = buildRoleGui()
@@ -350,7 +332,7 @@ return function(section, data)
                     if roleGui then
                         local label = roleGui:FindFirstChild("Role")
                         if label then
-                            local role = myRole()
+                            local role = getPlayerRole(plr)
                             label.Text = role
                             label.TextColor3 = ROLE_COLOR[role] or Color3.new(1, 1, 1)
                         end
@@ -362,5 +344,147 @@ return function(section, data)
 
             clearRoleGui()
         end)
+    end)
+
+    ----------------------------------------------------------------
+    -- all players role ESP (new)
+    ----------------------------------------------------------------
+    local allRoleGuis = {}   -- [player] = gui
+
+    local function clearAllRoleGuis()
+        for player, gui in pairs(allRoleGuis) do
+            pcall(function() gui:Destroy() end)
+            allRoleGuis[player] = nil
+        end
+    end
+
+    local function buildPlayerRoleGui(player)
+        local char = player.Character
+        local head = char and char:FindFirstChild("Head")
+        if not head then return nil end
+
+        local gui = Instance.new("BillboardGui")
+        gui.Name = "BPPlayerRole"
+        gui.Size = UDim2.new(0, 200, 0, 40)
+        gui.StudsOffset = Vector3.new(0, 3, 0)
+        gui.AlwaysOnTop = true
+        gui.MaxDistance = 1000
+        gui.Adornee = head
+        gui.Parent = head
+
+        local label = Instance.new("TextLabel")
+        label.Name = "Role"
+        label.Size = UDim2.new(1, 0, 1, 0)
+        label.BackgroundTransparency = 1
+        label.Font = Enum.Font.GothamBold
+        label.TextSize = 20
+        label.TextStrokeTransparency = 0
+        label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        label.Text = ""
+        label.Parent = gui
+
+        return gui
+    end
+
+    elements:Toggle("Show All Players Roles", section, setdata.allroles, function(v)
+        env.MMAllRoles = v
+        env.setconfig("allroles", v)
+
+        if not v then
+            clearAllRoleGuis()
+            return
+        end
+
+        task.spawn(function()
+            while env.MMAllRoles do
+                pcall(function()
+                    -- update guis for current players
+                    for _, player in ipairs(players:GetPlayers()) do
+                        if player == plr then continue end   -- leave local player's own gui if wanted
+
+                        local gui = allRoleGuis[player]
+                        local char = player.Character
+                        local head = char and char:FindFirstChild("Head")
+
+                        if not head then
+                            -- player dead/reset, remove gui
+                            if gui then
+                                pcall(function() gui:Destroy() end)
+                                allRoleGuis[player] = nil
+                            end
+                            continue
+                        end
+
+                        -- create gui if missing or adornee changed
+                        if not gui or gui.Adornee ~= head then
+                            if gui then
+                                pcall(function() gui:Destroy() end)
+                            end
+                            gui = buildPlayerRoleGui(player)
+                            if gui then
+                                allRoleGuis[player] = gui
+                            end
+                        end
+
+                        -- update text
+                        if gui then
+                            local label = gui:FindFirstChild("Role")
+                            if label then
+                                local role = getPlayerRole(player)
+                                label.Text = role
+                                label.TextColor3 = ROLE_COLOR[role] or Color3.new(1, 1, 1)
+                            end
+                        end
+                    end
+
+                    -- clean up guis for players that left
+                    for player, gui in pairs(allRoleGuis) do
+                        if not players:FindFirstChild(player.Name) then
+                            pcall(function() gui:Destroy() end)
+                            allRoleGuis[player] = nil
+                        end
+                    end
+                end)
+
+                task.wait(0.5)
+            end
+
+            clearAllRoleGuis()
+        end)
+    end)
+
+    -- Debug button (updated to use common function)
+    elements:Button("Debug My Role", section, function()
+        local char = plr.Character
+        local backpack = plr:FindFirstChildOfClass("Backpack")
+
+        print("[BrainrotPolice] character: " .. (char and char.Name or "NONE"))
+        print("[BrainrotPolice] head: "
+            .. tostring(char and char:FindFirstChild("Head") ~= nil))
+
+        local function list(label, container)
+            if not container then
+                print("  " .. label .. ": missing")
+                return
+            end
+
+            local n = 0
+            for _, c in pairs(container:GetChildren()) do
+                if c:IsA("Tool") then
+                    n = n + 1
+                    print("  " .. label .. " tool: " .. c.Name)
+                end
+            end
+
+            if n == 0 then
+                print("  " .. label .. ": no tools")
+            end
+        end
+
+        list("character", char)
+        list("backpack", backpack)
+
+        print("[BrainrotPolice] detected role: " .. getPlayerRole(plr))
+        print("[BrainrotPolice] gui exists: " .. tostring(roleGui ~= nil and roleGui.Parent ~= nil))
     end)
 end
