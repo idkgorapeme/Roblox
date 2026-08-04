@@ -229,7 +229,7 @@ return function(section, data)
 
                 -- landing: collision back on and pin us on the block for the
                 -- 1s wait, otherwise noclip drops us straight through the map
-                holdAt(posOf(resolve("Structure", "Stage1", "SAS", "WinBlock32")), 1, alive)
+                holdAt(posOf(resolve("Structure", "Stage1", "SAS", "WinBlock32")), 0.2, alive)
             end
 
             stopNoclip()
