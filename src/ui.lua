@@ -27,6 +27,59 @@ local TabList = MainFrame.tablist
 
 local HideButton = Topbar.hidebtn
 
+----------------------------------------------------------------
+-- Scripts tab
+--
+-- The gui is a prebuilt asset with no Scripts tab, so clone an existing
+-- tab button and container to inherit the exact styling.
+----------------------------------------------------------------
+
+local ScriptsTabBtn, ScriptsContainer
+
+do
+    local okTab = pcall(function()
+        ScriptsTabBtn = TabList.SettingsTab:Clone()
+        ScriptsTabBtn.Name = "ScriptsTab"
+        ScriptsTabBtn.BackgroundTransparency = 1
+        ScriptsTabBtn.LayoutOrder = 90
+        ScriptsTabBtn.Parent = TabList
+
+        -- rename whatever text lives inside the cloned button
+        if ScriptsTabBtn:IsA("TextButton") and ScriptsTabBtn.Text ~= "" then
+            ScriptsTabBtn.Text = "Scripts"
+        end
+        for _, d in pairs(ScriptsTabBtn:GetDescendants()) do
+            if d:IsA("TextLabel") or d:IsA("TextButton") then
+                d.Text = "Scripts"
+            end
+        end
+    end)
+
+    local okFrame = pcall(function()
+        ScriptsContainer = SectionContainers.settingsFrame:Clone()
+        ScriptsContainer.Name = "scriptsFrame"
+        ScriptsContainer.Visible = false
+        ScriptsContainer.Position = UDim2.new(0.5, 0, 1, 0)
+        ScriptsContainer.Parent = SectionContainers
+
+        -- strip the cloned settings widgets, keep the layout objects
+        for _, child in pairs(ScriptsContainer:GetChildren()) do
+            if not child:IsA("UIListLayout")
+                and not child:IsA("UIPadding")
+                and not child:IsA("UIGridLayout")
+                and not child:IsA("UICorner")
+                and not child:IsA("UIStroke") then
+                child:Destroy()
+            end
+        end
+    end)
+
+    if not (okTab and okFrame) then
+        warn("[BrainrotPolice] could not build the Scripts tab")
+        ScriptsTabBtn, ScriptsContainer = nil, nil
+    end
+end
+
 local Sections = {
     Home = {
         TabBtn = TabList.HomeTab,
@@ -53,6 +106,13 @@ local Sections = {
         Container = SectionContainers.creditsFrame
     }
 }
+
+if ScriptsTabBtn and ScriptsContainer then
+    Sections.Scripts = {
+        TabBtn = ScriptsTabBtn,
+        Container = ScriptsContainer
+    }
+end
 
 local CurSection
 
@@ -716,6 +776,152 @@ elements:Button("Rejoin Server", Sections.Settings.Container, function()
         end)
     end
 end)
+
+----------------------------------------------------------------
+-- Scripts tab contents
+--
+-- Scripts live as .lua files in BrainrotPolice/Scripts. Each one gets a
+-- run button and an auto execute toggle. Auto execute state is kept in
+-- BrainrotPolice/Scripts/_autoexec.json so it survives rejoins.
+----------------------------------------------------------------
+
+if Sections.Scripts then
+    local SCRIPT_DIR = "BrainrotPolice/Scripts"
+    local AUTO_FILE = SCRIPT_DIR .. "/_autoexec.json"
+
+    if not isfolder(SCRIPT_DIR) then
+        pcall(function() makefolder(SCRIPT_DIR) end)
+    end
+
+    local function loadAuto()
+        local ok, dec = pcall(function()
+            if isfile(AUTO_FILE) then
+                return httpservice:JSONDecode(readfile(AUTO_FILE))
+            end
+        end)
+        if ok and type(dec) == "table" then return dec end
+        return {}
+    end
+
+    local function saveAuto(tbl)
+        pcall(function()
+            writefile(AUTO_FILE, httpservice:JSONEncode(tbl))
+        end)
+    end
+
+    local autoExec = loadAuto()
+
+    local function listScripts()
+        local out = {}
+
+        local ok, files = pcall(function()
+            return listfiles(SCRIPT_DIR)
+        end)
+
+        if not ok or type(files) ~= "table" then return out end
+
+        for _, path in ipairs(files) do
+            -- only .lua, skip the autoexec bookkeeping file
+            if string.sub(path, -4) == ".lua" then
+                local name = string.match(path, "[^/\\]+$") or path
+                out[#out + 1] = { path = path, name = name }
+            end
+        end
+
+        table.sort(out, function(a, b) return a.name < b.name end)
+        return out
+    end
+
+    local function runScript(entry)
+        local ok, src = pcall(function()
+            return readfile(entry.path)
+        end)
+
+        if not ok or not src then
+            warn("[BrainrotPolice] could not read " .. entry.name)
+            return false
+        end
+
+        local fn, err = loadstring(src, entry.name)
+
+        if not fn then
+            warn("[BrainrotPolice] " .. entry.name .. " failed to compile: " .. tostring(err))
+            return false
+        end
+
+        local ranOk, runErr = pcall(fn)
+
+        if ranOk then
+            print("[BrainrotPolice] ran " .. entry.name)
+        else
+            warn("[BrainrotPolice] " .. entry.name .. " error: " .. tostring(runErr))
+        end
+
+        return ranOk
+    end
+
+    -- rebuilt whenever the list changes, so new files show up without a rejoin
+    local function buildScriptList()
+        for _, child in pairs(Sections.Scripts.Container:GetChildren()) do
+            if not child:IsA("UIListLayout")
+                and not child:IsA("UIPadding")
+                and not child:IsA("UIGridLayout")
+                and not child:IsA("UICorner")
+                and not child:IsA("UIStroke") then
+                child:Destroy()
+            end
+        end
+
+        elements:Label("Put .lua files in workspace/" .. SCRIPT_DIR,
+            Sections.Scripts.Container)
+
+        elements:Button("Refresh List", Sections.Scripts.Container, function()
+            task.spawn(function()
+                buildScriptList()
+            end)
+        end)
+
+        elements:Button("Open Folder Path", Sections.Scripts.Container, function()
+            local ok = pcall(function() setclipboard(SCRIPT_DIR) end)
+            print("[BrainrotPolice] script folder: " .. SCRIPT_DIR
+                .. (ok and " (copied)" or ""))
+        end)
+
+        local scripts = listScripts()
+
+        if #scripts == 0 then
+            elements:Label("No scripts found.", Sections.Scripts.Container)
+            return
+        end
+
+        for _, entry in ipairs(scripts) do
+            elements:Button("Run  " .. entry.name, Sections.Scripts.Container, function()
+                task.spawn(function()
+                    runScript(entry)
+                end)
+            end)
+
+            elements:Toggle("Auto Exec  " .. entry.name, Sections.Scripts.Container,
+                autoExec[entry.name] == true, function(v)
+                    autoExec[entry.name] = v or nil
+                    saveAuto(autoExec)
+                end)
+        end
+    end
+
+    buildScriptList()
+
+    -- run everything marked for auto execute, once, on load
+    task.spawn(function()
+        for _, entry in ipairs(listScripts()) do
+            if autoExec[entry.name] then
+                print("[BrainrotPolice] auto executing " .. entry.name)
+                runScript(entry)
+                task.wait(0.2)
+            end
+        end
+    end)
+end
 
 elements:Button("Unload Script", Sections.Settings.Container, function()
     if bp and bp.unload then
