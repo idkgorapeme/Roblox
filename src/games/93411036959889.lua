@@ -285,61 +285,36 @@ return function(section, data)
 
                 if not env.KEWin2 then break end
 
-                flyToPath(alive, "Structure", "Stage6", "SAS", "WinBlock37")
+                -- aim 15 studs ABOVE the win block, then cut the flight and
+                -- let gravity drop us onto it
+                local winPos = posOf(resolve("Structure", "Stage6", "SAS", "WinBlock37"))
+
+                if winPos then
+                    flyTo(winPos + Vector3.new(0, 15, 0), alive)
+                else
+                    warn("[BrainrotPolice] WinBlock37 not found")
+                end
+
                 if not env.KEWin2 then break end
 
-                -- landing: turn collision back on and hold the win block for
-                -- the 2s wait, otherwise noclip drops us straight through it
-                holdAt(posOf(resolve("Structure", "Stage6", "SAS", "WinBlock37")), 2, alive)
-                if not env.KEWin2 then break end
-
-                -- full respawn, not just a teleport back
+                -- disable flight: collision back on, no more platform stand,
+                -- so the character simply falls onto the block
                 stopNoclip()
 
-                local oldChar = plr.Character
-
                 pcall(function()
-                    local hum = oldChar and oldChar:FindFirstChildOfClass("Humanoid")
+                    local hum = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
                     if hum then
                         hum.PlatformStand = false
+                        hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                    end
+
+                    local root = getRoot()
+                    if root then
+                        root.AssemblyLinearVelocity = Vector3.zero
                     end
                 end)
 
-                -- ask the game to respawn us. break joints is what actually
-                -- kills the rig, some games ignore Health = 0 alone.
-                pcall(function()
-                    if oldChar then
-                        local hum = oldChar:FindFirstChildOfClass("Humanoid")
-                        if hum then hum.Health = 0 end
-                        oldChar:BreakJoints()
-                    end
-                end)
-
-                -- wait for a genuinely NEW character instance, not the old one
-                local newChar
-                local waitedRespawn = 0
-                while waitedRespawn < 15 and env.KEWin2 do
-                    local c = plr.Character
-                    if c and c ~= oldChar then
-                        local hum = c:FindFirstChildOfClass("Humanoid")
-                        local root = c:FindFirstChild("HumanoidRootPart")
-                        if hum and root and hum.Health > 0 then
-                            newChar = c
-                            break
-                        end
-                    end
-
-                    task.wait(0.25)
-                    waitedRespawn = waitedRespawn + 0.25
-                end
-
-                if not env.KEWin2 then break end
-
-                if not newChar then
-                    warn("[BrainrotPolice] respawn timed out, continuing anyway")
-                end
-
-                -- let the spawn settle, then wait the requested 5 seconds
+                -- 5 second pause before the next lap
                 local waited = 0
                 while waited < 5 and env.KEWin2 do
                     task.wait(0.1)
