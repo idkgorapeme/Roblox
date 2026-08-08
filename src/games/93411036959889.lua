@@ -392,6 +392,12 @@ return function(section, data)
 
                     local monster = workspace:FindFirstChild("NPC_LolMonster")
                     if monster then monster:Destroy() end
+
+                    -- workspace.Structure.Stage6.InvisibleWalls
+                    local structure = workspace:FindFirstChild("Structure")
+                    local stage6 = structure and structure:FindFirstChild("Stage6")
+                    local walls = stage6 and stage6:FindFirstChild("InvisibleWalls")
+                    if walls then walls:Destroy() end
                 end)
 
                 task.wait(0.5)

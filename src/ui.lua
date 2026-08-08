@@ -860,8 +860,49 @@ if Sections.Scripts then
         return ranOk
     end
 
+    -- what the name/code boxes currently hold
+    local draftName = ""
+    local draftCode = ""
+
     -- rebuilt whenever the list changes, so new files show up without a rejoin
-    local function buildScriptList()
+    local buildScriptList
+
+    -- writes the draft to disk as a .lua file
+    local function saveDraft()
+        local name = draftName:gsub("^%s*(.-)%s*$", "%1")
+
+        if name == "" then
+            warn("[BrainrotPolice] enter a script name first")
+            return false
+        end
+
+        if draftCode:gsub("%s", "") == "" then
+            warn("[BrainrotPolice] the code box is empty")
+            return false
+        end
+
+        -- keep the filename safe and always .lua
+        name = name:gsub("[^%w_%-%. ]", "")
+        if string.sub(name, -4) ~= ".lua" then
+            name = name .. ".lua"
+        end
+
+        local path = SCRIPT_DIR .. "/" .. name
+
+        local ok, err = pcall(function()
+            writefile(path, draftCode)
+        end)
+
+        if not ok then
+            warn("[BrainrotPolice] could not save " .. name .. ": " .. tostring(err))
+            return false
+        end
+
+        print("[BrainrotPolice] saved " .. path)
+        return true
+    end
+
+    buildScriptList = function()
         for _, child in pairs(Sections.Scripts.Container:GetChildren()) do
             if not child:IsA("UIListLayout")
                 and not child:IsA("UIPadding")
@@ -872,19 +913,72 @@ if Sections.Scripts then
             end
         end
 
-        elements:Label("Put .lua files in workspace/" .. SCRIPT_DIR,
+        elements:Label("Add a script: type a name, paste the code, then Save.",
             Sections.Scripts.Container)
+
+        elements:Textbox("Script Name", Sections.Scripts.Container, draftName, function(v)
+            draftName = v or ""
+        end)
+
+        elements:Textbox("Lua Code", Sections.Scripts.Container, draftCode, function(v)
+            draftCode = v or ""
+        end)
+
+        elements:Button("Save Script", Sections.Scripts.Container, function()
+            if saveDraft() then
+                draftName, draftCode = "", ""
+                task.spawn(function() buildScriptList() end)
+            end
+        end)
+
+        -- run the box contents without saving anything
+        elements:Button("Run Code Now", Sections.Scripts.Container, function()
+            if draftCode:gsub("%s", "") == "" then
+                warn("[BrainrotPolice] the code box is empty")
+                return
+            end
+
+            local fn, err = loadstring(draftCode, "BrainrotPolice_draft")
+
+            if not fn then
+                warn("[BrainrotPolice] compile error: " .. tostring(err))
+                return
+            end
+
+            task.spawn(function()
+                local ok, runErr = pcall(fn)
+                if ok then
+                    print("[BrainrotPolice] draft ran")
+                else
+                    warn("[BrainrotPolice] draft error: " .. tostring(runErr))
+                end
+            end)
+        end)
+
+        -- paste straight from the clipboard, easier than a long textbox
+        elements:Button("Paste Code From Clipboard", Sections.Scripts.Container, function()
+            local getcb = getclipboard or toclipboard or get_clipboard
+
+            if not getcb then
+                warn("[BrainrotPolice] this executor cannot read the clipboard")
+                return
+            end
+
+            local ok, text = pcall(getcb)
+
+            if ok and type(text) == "string" and text ~= "" then
+                draftCode = text
+                print("[BrainrotPolice] pasted " .. #text .. " chars, press Save Script")
+                task.spawn(function() buildScriptList() end)
+            else
+                warn("[BrainrotPolice] clipboard was empty")
+            end
+        end)
 
         elements:Button("Refresh List", Sections.Scripts.Container, function()
             task.spawn(function()
                 buildScriptList()
             end)
-        end)
-
-        elements:Button("Open Folder Path", Sections.Scripts.Container, function()
-            local ok = pcall(function() setclipboard(SCRIPT_DIR) end)
-            print("[BrainrotPolice] script folder: " .. SCRIPT_DIR
-                .. (ok and " (copied)" or ""))
         end)
 
         local scripts = listScripts()
@@ -906,6 +1000,19 @@ if Sections.Scripts then
                     autoExec[entry.name] = v or nil
                     saveAuto(autoExec)
                 end)
+
+            elements:Button("Delete  " .. entry.name, Sections.Scripts.Container, function()
+                local ok = pcall(function() delfile(entry.path) end)
+
+                if ok then
+                    autoExec[entry.name] = nil
+                    saveAuto(autoExec)
+                    print("[BrainrotPolice] deleted " .. entry.name)
+                    task.spawn(function() buildScriptList() end)
+                else
+                    warn("[BrainrotPolice] could not delete " .. entry.name)
+                end
+            end)
         end
     end
 

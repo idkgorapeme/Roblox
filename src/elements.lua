@@ -53,6 +53,12 @@ function stuff:Textbox(str, king, def, cb)
     newTb.TextLabel.Text = str
     newTb.Parent = king
 
+    -- the default was accepted but never shown, so a box could not display
+    -- an existing value
+    if def ~= nil and def ~= "" then
+        newTb.tbbg.Inp.Text = tostring(def)
+    end
+
     newTb.tbbg.Inp.FocusLost:Connect(function(ep)
         cb(newTb.tbbg.Inp.Text)
     end)
