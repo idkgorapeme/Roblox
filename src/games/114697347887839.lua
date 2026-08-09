@@ -90,6 +90,7 @@ return function(section, data)
     local TP_HOLD = 0.2       -- seconds to keep re-applying a teleport
     local PAD_HOLD = 0.3      -- minimum time to sit on a win pad
     local PAD_TIMEOUT = 2     -- give up waiting for the win to register
+    local SPAM_DELAY = 0.5    -- teleport interval once the pad is loaded
 
     -- Collects every child of a stage that can be stood on, with the known
     -- starting index first, so the chain has something to hop along.
@@ -463,20 +464,30 @@ return function(section, data)
         return true
     end
 
+    -- Once the wanted win pad exists there is nothing left to stream in, so
+    -- just keep teleporting onto it every SPAM_DELAY seconds. Runs until the
+    -- pad disappears again, which happens when the world reloads.
+    local function spamPad(target)
+        while env.MEWin do
+            local part = winPartFor(target)
+            if not part then return end
+
+            if not alive() then
+                task.wait(SPAM_DELAY)
+            else
+                teleportTo(part.Position)
+                task.wait(SPAM_DELAY)
+            end
+        end
+    end
+
     -- steps through stage 1, 2, 3 ... so the map keeps streaming in, then
     -- finishes on the wanted win block
     local function walkStages(target)
-        local list = WAYPOINTS[worldChoice]
-        local needsWaypoint = list and list[target]
-
-        -- straight teleport whenever the target is already loaded and does
-        -- not need to be walked into
-        if not needsWaypoint then
-            local direct = winPartFor(target)
-            if direct then
-                touchPad(direct)
-                return true
-            end
+        -- the pad is already there, no walking needed, spam it instead
+        if winPartFor(target) then
+            spamPad(target)
+            return true
         end
 
         local lastErr
@@ -494,7 +505,16 @@ return function(section, data)
                 end
                 -- a stage in between is skipped, the next one may still load
             end
+
+            -- the goal streamed in early, stop walking and spam it
+            if n < target and winPartFor(target) then
+                spamPad(target)
+                return true
+            end
         end
+
+        -- reached it, from now on it is a plain teleport loop
+        spamPad(target)
 
         return true, lastErr
     end
