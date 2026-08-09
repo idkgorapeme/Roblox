@@ -14,6 +14,8 @@ return function(section, data)
     env.GGBuy = false
     env.GGPlant = false
     env.GGPets = false
+    env.GGDrops = false
+    env.GGEvent = false
 
     local setdata = data[tostring(game.PlaceId)] or {}
     setdata.collect = setdata.collect or false
@@ -27,6 +29,9 @@ return function(section, data)
     setdata.plant = setdata.plant or false
     setdata.pets = setdata.pets or false
     setdata.petnames = setdata.petnames or ""
+    setdata.drops = setdata.drops or false
+    setdata.event = setdata.event or false
+    setdata.sellpct = setdata.sellpct or 0
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
@@ -152,6 +157,7 @@ return function(section, data)
     local allowedPets = parseList(setdata.petnames)
     local allowMutated = setdata.mutated and true or false
     local sellDelay = tonumber(setdata.selldelay) or 60
+    local sellPercent = tonumber(setdata.sellpct) or 0
 
     ----------------------------------------------------------------
     -- sell when full
@@ -296,15 +302,41 @@ return function(section, data)
         env.setconfig("selldelay", n)
     end)
 
+    -- FruitCount / MaxFruitCapacity are plain attributes, so the backpack
+    -- can be watched directly instead of waiting for the full notification
+    elements:Textbox("Sell At Capacity % (0 = off)", section, tostring(sellPercent), function(v)
+        local n = tonumber(v)
+        if not n then return end
+        sellPercent = math.clamp(n, 0, 100)
+        env.setconfig("sellpct", sellPercent)
+    end)
+
     elements:Toggle("Auto Sell", section, setdata.sell, function(v)
         env.GGSell = v
         env.setconfig("sell", v)
         if not v then return end
 
         task.spawn(function()
+            local last = os.clock()
+
             while env.GGSell do
-                fire("NPCS", "SellAll")
-                task.wait(sellDelay)
+                local full = false
+
+                if sellPercent > 0 then
+                    local count = tonumber(plr:GetAttribute("FruitCount")) or 0
+                    local max = tonumber(plr:GetAttribute("MaxFruitCapacity")) or 0
+
+                    if max > 0 and (count / max) * 100 >= sellPercent then
+                        full = true
+                    end
+                end
+
+                if full or os.clock() - last >= sellDelay then
+                    fire("NPCS", "SellAll")
+                    last = os.clock()
+                end
+
+                task.wait(1)
             end
         end)
     end)
@@ -515,6 +547,67 @@ return function(section, data)
     end)
 
     ----------------------------------------------------------------
+    -- collectibles
+    ----------------------------------------------------------------
+
+    -- Fires every proximity prompt inside a folder. Range and hold time are
+    -- widened first so distance cannot block the pickup.
+    local function sweepPrompts(folder)
+        if not folder or not fireproximityprompt then return 0 end
+
+        local hits = 0
+
+        for _, d in ipairs(folder:GetDescendants()) do
+            if d:IsA("ProximityPrompt") and d.Enabled then
+                pcall(function()
+                    d.HoldDuration = 0
+                    d.MaxActivationDistance = math.max(d.MaxActivationDistance, 200)
+                    fireproximityprompt(d)
+                end)
+
+                hits = hits + 1
+            end
+        end
+
+        return hits
+    end
+
+    elements:Label("Collectibles", section)
+
+    elements:Toggle("Auto Collect Drops", section, setdata.drops, function(v)
+        env.GGDrops = v
+        env.setconfig("drops", v)
+        if not v then return end
+
+        task.spawn(function()
+            while env.GGDrops do
+                sweepPrompts(workspace:FindFirstChild("DroppedItems"))
+                task.wait(1)
+            end
+        end)
+    end)
+
+    -- gnomes, birds, presents and the rainbow chest all use prompts
+    local EVENT_SPOTS = { "Gnomes", "Birds", "Presents", "RainbowChestRigged" }
+
+    elements:Toggle("Auto Collect Event Items", section, setdata.event, function(v)
+        env.GGEvent = v
+        env.setconfig("event", v)
+        if not v then return end
+
+        task.spawn(function()
+            while env.GGEvent do
+                for _, name in ipairs(EVENT_SPOTS) do
+                    if not env.GGEvent then break end
+                    sweepPrompts(workspace:FindFirstChild(name))
+                end
+
+                task.wait(2)
+            end
+        end)
+    end)
+
+    ----------------------------------------------------------------
     -- misc
     ----------------------------------------------------------------
 
@@ -524,11 +617,72 @@ return function(section, data)
         fire("TeleportButton", "Request", "Garden")
     end)
 
-    elements:Button("Show Sheckles", section, function()
+    elements:Button("Show Stats", section, function()
         local stats = plr:FindFirstChild("leaderstats")
         local sheckles = stats and stats:FindFirstChild("Sheckles")
 
         print("[BrainrotPolice] Sheckles: "
             .. tostring(sheckles and sheckles.Value or "not found"))
+
+        for _, key in ipairs({
+            "FruitCount", "MaxFruitCapacity", "MaxEquippedPets", "GardenLikes",
+            "PlotId", "BackpackSpaceUpgradesPurchased", "PropSpaceUpgradesPurchased",
+        }) do
+            print("  " .. key .. " = " .. tostring(plr:GetAttribute(key)))
+        end
+    end)
+
+    -- Networking is a table of groups, listing it shows every action the
+    -- game exposes, which is where any further feature has to come from
+    elements:Button("Dump Networking", section, function()
+        local n = net()
+
+        if not n then
+            warn("[BrainrotPolice] SharedModules.Networking could not be required")
+            return
+        end
+
+        local lines = {}
+
+        for group, value in pairs(n) do
+            if type(value) == "table" then
+                local names = {}
+
+                for key in pairs(value) do
+                    names[#names + 1] = tostring(key)
+                end
+
+                table.sort(names)
+                lines[#lines + 1] = tostring(group) .. ": " .. table.concat(names, ", ")
+            else
+                lines[#lines + 1] = tostring(group)
+            end
+        end
+
+        table.sort(lines)
+
+        local text = table.concat(lines, "\n")
+        print("[BrainrotPolice] Networking:\n" .. text)
+
+        if setclipboard then
+            pcall(function() setclipboard(text) end)
+            print("[BrainrotPolice] copied to clipboard")
+        end
+    end)
+
+    elements:Button("Dump Teleports", section, function()
+        local tps = workspace:FindFirstChild("Teleports")
+
+        if not tps then
+            warn("[BrainrotPolice] workspace.Teleports not found")
+            return
+        end
+
+        local names = {}
+        for _, c in ipairs(tps:GetChildren()) do
+            names[#names + 1] = c.Name
+        end
+
+        print("[BrainrotPolice] Teleports: " .. table.concat(names, ", "))
     end)
 end
