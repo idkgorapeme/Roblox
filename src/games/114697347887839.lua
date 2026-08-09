@@ -185,23 +185,28 @@ return function(section, data)
 
                 return stageHops(stage, 19)
             end,
-            -- after win 8 only the first jump device is needed, the rest of
-            -- the stage streams in from there
+            -- after win 8: the first jump device, then a fixed spot further
+            -- along the stage, then the win block
             [9] = function(stage)
-                local first = stage:GetChildren()[64]
+                local jump = stage:GetChildren()[64]
 
-                if first and first.Name == "JumpDevice" then
-                    return { first }
-                end
+                if not jump or jump.Name ~= "JumpDevice" then
+                    -- the index shifted, take the first jump device there is
+                    jump = nil
 
-                -- the index shifted, take the first jump device there is
-                for _, d in pairs(stage:GetDescendants()) do
-                    if d.Name == "JumpDevice" then
-                        return { d }
+                    for _, d in pairs(stage:GetDescendants()) do
+                        if d.Name == "JumpDevice" then
+                            jump = d
+                            break
+                        end
                     end
                 end
 
-                return first and { first } or stageHops(stage, 64)
+                local out = {}
+                if jump then out[#out + 1] = jump end
+                out[#out + 1] = Vector3.new(-3640, 153, -9355)
+
+                return out
             end,
         },
     }
@@ -248,6 +253,10 @@ return function(section, data)
     -- Models have no .Position, so fall back to the pivot
     local function posOf(inst)
         if not inst then return nil end
+
+        -- a waypoint may be a plain coordinate instead of an instance
+        if typeof(inst) == "Vector3" then return inst end
+
         if inst:IsA("BasePart") then return inst.Position end
 
         local ok, pivot = pcall(function() return inst:GetPivot() end)
@@ -502,8 +511,10 @@ return function(section, data)
             for _, pos in ipairs(chain) do
                 if not env.MEWin then return false, "cancelled" end
 
-                -- stop hopping as soon as the win block has streamed in
-                if winPartFor(n) then break end
+                -- On the way there a loaded win block means we can cut the
+                -- chain short. On the stage we actually want, the route is
+                -- walked in full, it is what makes the win count.
+                if not isTarget and winPartFor(n) then break end
 
                 teleportTo(pos)
                 task.wait(HOP_WAIT)
