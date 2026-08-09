@@ -168,24 +168,90 @@ return function(section, data)
         return true
     end
 
-    -- a brainrot welded to the character is what counts as carrying one
-    local function carrying()
+    -- Whether we are hauling something. The attribute is checked first, then
+    -- anything parented to or welded onto the character, and finally the item
+    -- we just picked up: once it follows the character around it is ours.
+    local function carrying(item)
         if plr:GetAttribute("IsCarryingBrainrot") then return true end
 
         local char = getChar()
+        local root = getRoot()
         if not char then return false end
 
         for _, c in ipairs(char:GetChildren()) do
-            if c:IsA("Model") and c.Name ~= "Head" then return true end
+            if (c:IsA("Model") or c:IsA("Tool")) and c.Name ~= "Head" then
+                return true
+            end
+        end
+
+        if item and item.Parent and root then
+            -- left the spawner, so it is on its way to us
+            local spawner = spawnerFolder()
+            if spawner and not item:IsDescendantOf(spawner) then return true end
+
+            -- or it is simply glued to the character now
+            local pos = pivotOf(item)
+            if pos and (pos - root.Position).Magnitude < 12 then
+                for _, d in ipairs(item:GetDescendants()) do
+                    if d:IsA("WeldConstraint") or d:IsA("Weld") or d:IsA("Motor6D") then
+                        local a, b = d.Part0, d.Part1
+                        if (a and a:IsDescendantOf(char)) or (b and b:IsDescendantOf(char)) then
+                            return true
+                        end
+                    end
+                end
+            end
         end
 
         return false
     end
 
-    -- your own plot, that is where a carried brainrot has to be dropped off
-    local function myPlot()
-        local direct = workspace:FindFirstChild("Plot_" .. plr.Name)
-        return direct and pivotOf(direct) or nil
+    -- The spot inside your plot where a brainrot gets handed in. Falls back
+    -- to the plot pivot when no obvious drop part exists.
+    local function dropSpot()
+        local plot = workspace:FindFirstChild("Plot_" .. plr.Name)
+        if not plot then return nil end
+
+        -- a free slot is the proper target, the game places the item there
+        for _, name in ipairs({ "Slots", "Slot", "Spawn", "DropZone", "Base" }) do
+            local holder = plot:FindFirstChild(name, true)
+
+            if holder then
+                -- prefer a slot that has nothing in it yet
+                for _, slot in ipairs(holder:GetChildren()) do
+                    local spawn = slot:FindFirstChild("Spawn")
+                    local taken = spawn and spawn:FindFirstChild("SpawnedItem")
+
+                    if not taken then
+                        local pos = pivotOf(spawn or slot)
+                        if pos then return pos end
+                    end
+                end
+
+                local pos = pivotOf(holder)
+                if pos then return pos end
+            end
+        end
+
+        return pivotOf(plot)
+    end
+
+    -- hands the item in: stand on the plot and fire whatever is there
+    local function dropOff(pos)
+        holdAt(pos + Vector3.new(0, 3, 0), 0.4)
+
+        local plot = workspace:FindFirstChild("Plot_" .. plr.Name)
+        if not plot then return end
+
+        for _, d in ipairs(plot:GetDescendants()) do
+            if d:IsA("ProximityPrompt") and fireproximityprompt then
+                pcall(function()
+                    d.HoldDuration = 0
+                    d.MaxActivationDistance = math.max(d.MaxActivationDistance, 50)
+                    fireproximityprompt(d)
+                end)
+            end
+        end
     end
 
     -- accepts 5000, 5k, 2.5m and so on
@@ -213,16 +279,25 @@ return function(section, data)
         task.spawn(function()
             local warned = false
             local home = nil
+            local held = nil
 
             while env.BRFarm do
                 if not alive() then
+                    held = nil
                     task.wait(0.5)
-                elseif carrying() then
+                elseif carrying(held) then
                     -- drop it off at home before grabbing the next one
-                    local plot = myPlot()
+                    local spot = dropSpot()
 
-                    if plot then
-                        holdAt(plot + Vector3.new(0, 3, 0), 0.4)
+                    if spot then
+                        warned = false
+                        dropOff(spot)
+
+                        -- give the server a moment to take it off our hands
+                        task.wait(0.3)
+
+                        if not carrying(held) then held = nil end
+
                         task.wait(FARM_DELAY)
                     else
                         if not warned then
@@ -232,6 +307,8 @@ return function(section, data)
                         task.wait(1)
                     end
                 else
+                    held = nil
+
                     local item = bestItem()
 
                     if not item then
@@ -262,7 +339,10 @@ return function(section, data)
                         local t = os.clock()
 
                         while env.BRFarm and item.Parent and os.clock() - t < 2 do
-                            if carrying() then break end
+                            if carrying(item) then
+                                held = item
+                                break
+                            end
 
                             pos = pivotOf(item) or pos
                             holdAt(pos, 0.1)
