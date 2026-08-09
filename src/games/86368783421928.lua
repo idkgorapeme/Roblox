@@ -18,6 +18,7 @@ return function(section, data)
     setdata.guarddelay = setdata.guarddelay or 0.5
     setdata.farm = setdata.farm or false
     setdata.farmdelay = setdata.farmdelay or 0.2
+    setdata.spawner = setdata.spawner or "Celestial"
     setdata.sell = setdata.sell or false
     setdata.selldelay = setdata.selldelay or 1
     setdata.rebirth = setdata.rebirth or false
@@ -26,6 +27,7 @@ return function(section, data)
 
     local guardDelay = tonumber(setdata.guarddelay) or 0.5
     local farmDelay = tonumber(setdata.farmdelay) or 0.2
+    local spawnerName = tostring(setdata.spawner or "Celestial")
 
     local function getChar() return plr.Character end
 
@@ -133,9 +135,22 @@ return function(section, data)
         return part and part.Position or nil
     end
 
+    -- workspace.DropperParts.ItemSpawners.<tier>
+    local function spawnerFolder()
+        local dp = workspace:FindFirstChild("DropperParts")
+        local spawners = dp and dp:FindFirstChild("ItemSpawners")
+        if not spawners then return nil end
+
+        return spawners:FindFirstChild(spawnerName), spawners
+    end
+
     -- the folders a fallen brainrot can end up in
     local function brainrotFolders()
         local out = {}
+
+        -- the chosen spawner tier comes first, that is what we want most
+        local spawner = spawnerFolder()
+        if spawner then out[#out + 1] = spawner end
 
         for _, name in ipairs({ "DroppedItems", "zBrainrot", "FallParts" }) do
             local f = workspace:FindFirstChild(name)
@@ -145,28 +160,53 @@ return function(section, data)
         return out
     end
 
-    -- everything lying in a collection zone right now, nearest first
+    -- everything the chosen spawner has dropped, nearest first. Items are
+    -- taken from the spawner folder no matter where they are, and from the
+    -- other folders only while they sit in a collection zone.
     local function zoneBrainrots()
         local zones = collectionZones()
-        if #zones == 0 then return {} end
+        local spawner = spawnerFolder()
 
         local root = getRoot()
         local from = root and root.Position or Vector3.zero
         local out = {}
+        local seen = {}
 
-        for _, folder in ipairs(brainrotFolders()) do
-            for _, item in ipairs(folder:GetChildren()) do
-                local pos = pivotOf(item)
+        local function add(item)
+            if seen[item] then return end
 
-                if pos then
-                    for _, zone in ipairs(zones) do
-                        if insideZone(zone, pos) then
-                            out[#out + 1] = {
-                                inst = item,
-                                pos = pos,
-                                dist = (pos - from).Magnitude,
-                            }
-                            break
+            local pos = pivotOf(item)
+            if not pos then return end
+
+            seen[item] = true
+            out[#out + 1] = {
+                inst = item,
+                pos = pos,
+                dist = (pos - from).Magnitude,
+            }
+        end
+
+        -- straight from the spawner, no zone check needed
+        if spawner then
+            for _, item in ipairs(spawner:GetChildren()) do
+                add(item)
+            end
+        end
+
+        -- anything else that already landed in a collection zone
+        if #zones > 0 then
+            for _, folder in ipairs(brainrotFolders()) do
+                if folder ~= spawner then
+                    for _, item in ipairs(folder:GetChildren()) do
+                        local pos = pivotOf(item)
+
+                        if pos then
+                            for _, zone in ipairs(zones) do
+                                if insideZone(zone, pos) then
+                                    add(item)
+                                    break
+                                end
+                            end
                         end
                     end
                 end
@@ -214,6 +254,25 @@ return function(section, data)
     end
 
     elements:Button("Dump Brainrot Info", section, function()
+        local spawner, all = spawnerFolder()
+
+        if all then
+            local names = {}
+            for _, c in ipairs(all:GetChildren()) do
+                names[#names + 1] = c.Name .. " (" .. #c:GetChildren() .. ")"
+            end
+            print("[BrainrotPolice] ItemSpawners: " .. table.concat(names, ", "))
+        else
+            warn("[BrainrotPolice] workspace.DropperParts.ItemSpawners not found")
+        end
+
+        if spawner then
+            print("[BrainrotPolice] spawner " .. spawnerName .. ": "
+                .. #spawner:GetChildren() .. " items")
+        else
+            warn("[BrainrotPolice] spawner " .. spawnerName .. " not found")
+        end
+
         local zones = collectionZones()
         print("[BrainrotPolice] collection zones: " .. #zones)
 
@@ -238,6 +297,13 @@ return function(section, data)
         print("[BrainrotPolice] carrying: " .. tostring(plr:GetAttribute("IsCarryingBrainrot")))
     end)
 
+    elements:Textbox("Spawner (default Celestial)", section, spawnerName, function(v)
+        v = tostring(v):gsub("^%s+", ""):gsub("%s+$", "")
+        if v == "" then return end
+        spawnerName = v
+        env.setconfig("spawner", v)
+    end)
+
     elements:Textbox("Farm Delay (default 0.2)", section, tostring(farmDelay), function(v)
         local n = tonumber(v)
         if not n or n < 0.05 then return end
@@ -246,7 +312,7 @@ return function(section, data)
     end)
 
     -- starts off every session, it moves the character
-    elements:Toggle("Auto Farm Zone Brainrots", section, false, function(v)
+    elements:Toggle("Auto Farm Brainrots", section, false, function(v)
         env.FBFarm = v
         env.setconfig("farm", v)
         if not v then return end
@@ -278,7 +344,7 @@ return function(section, data)
                         local found = zoneBrainrots()
 
                         if #found == 0 then
-                            -- nothing has landed in a zone yet, just wait
+                            -- the spawner has not dropped anything yet
                             task.wait(0.5)
                         else
                             warned = false
