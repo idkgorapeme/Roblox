@@ -12,6 +12,8 @@ return function(section, data)
     env.BSStorage = false
     env.BSDamage = false
     env.BSRebirth = false
+    env.BSUpgrade = false
+    env.BSCollect = false
 
     local setdata = data[tostring(game.PlaceId)] or {}
     setdata.farm = setdata.farm or false
@@ -19,6 +21,8 @@ return function(section, data)
     setdata.storage = setdata.storage or false
     setdata.damage = setdata.damage or false
     setdata.rebirth = setdata.rebirth or false
+    setdata.upgrade = setdata.upgrade or false
+    setdata.collect = setdata.collect or false
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
@@ -32,6 +36,11 @@ return function(section, data)
     -- how many levels are bought per call and how often
     local UPGRADE_AMOUNT = 10
     local UPGRADE_DELAY = 0.5
+
+    -- slots the brainrot upgrader and the collector walk through
+    local SLOT_FROM, SLOT_TO = 1, 50
+    local SLOT_DELAY = 0.1
+    local COLLECT_HOLD = 0.15
 
     local minMoney = tonumber(setdata.minmoney) or 500000
 
@@ -225,7 +234,7 @@ return function(section, data)
 
     -- workspace.Bases.<n>, the one belonging to us. The Base attribute holds
     -- the number the server handed out.
-    local function myBase()
+    local function myBaseModel()
         local bases = workspace:FindFirstChild("Bases")
         if not bases then return nil end
 
@@ -235,17 +244,48 @@ return function(section, data)
             local base = bases:FindFirstChild(tostring(id))
                 or bases:FindFirstChild("Base" .. tostring(id))
 
-            if base then return pivotOf(base) end
+            if base then return base end
         end
 
         -- fall back to whichever base carries our name
         for _, b in ipairs(bases:GetChildren()) do
             if b:GetAttribute("Owner") == plr.Name or b.Name == plr.Name then
-                return pivotOf(b)
+                return b
             end
         end
 
         return nil
+    end
+
+    local function myBase()
+        local base = myBaseModel()
+        return base and pivotOf(base) or nil
+    end
+
+    -- every <base>.Floor<n>.Platforms.<slot>.Collect part there is
+    local function collectParts()
+        local base = myBaseModel()
+        if not base then return {} end
+
+        local out = {}
+
+        for _, floor in ipairs(base:GetChildren()) do
+            local platforms = floor:FindFirstChild("Platforms")
+
+            if platforms then
+                for slot = SLOT_FROM, SLOT_TO do
+                    local p = platforms:FindFirstChild(tostring(slot))
+                    local collect = p and p:FindFirstChild("Collect")
+
+                    if collect then
+                        local pos = pivotOf(collect)
+                        if pos then out[#out + 1] = pos end
+                    end
+                end
+            end
+        end
+
+        return out
     end
 
     elements:Button("Dump Farm Info", section, function()
@@ -455,6 +495,87 @@ return function(section, data)
                 end
 
                 task.wait(1)
+            end
+        end)
+    end)
+
+    ----------------------------------------------------------------
+    -- auto upgrade brainrots
+    ----------------------------------------------------------------
+
+    -- UpgradeBrainrotEvent:FireServer(<slot>), slot 1 to 50
+    elements:Toggle("Auto Upgrade Brainrots", section, setdata.upgrade, function(v)
+        env.BSUpgrade = v
+        env.setconfig("upgrade", v)
+        if not v then return end
+
+        task.spawn(function()
+            local warned = false
+
+            while env.BSUpgrade do
+                local ev = remote("UpgradeBrainrotEvent")
+
+                if not ev then
+                    if not warned then
+                        warn("[BrainrotPolice] Remotes.UpgradeBrainrotEvent not found")
+                        warned = true
+                    end
+
+                    task.wait(1)
+                else
+                    warned = false
+
+                    -- one call per slot, the server skips empty ones
+                    for slot = SLOT_FROM, SLOT_TO do
+                        if not env.BSUpgrade then break end
+
+                        pcall(function() ev:FireServer(slot) end)
+                        task.wait(SLOT_DELAY)
+                    end
+                end
+            end
+        end)
+    end)
+
+    ----------------------------------------------------------------
+    -- auto collect
+    ----------------------------------------------------------------
+
+    -- starts off every session, it moves the character
+    elements:Toggle("Auto Collect", section, false, function(v)
+        env.BSCollect = v
+        env.setconfig("collect", v)
+        if not v then return end
+
+        task.spawn(function()
+            local warned = false
+
+            while env.BSCollect do
+                if not alive() then
+                    task.wait(0.5)
+                else
+                    local spots = collectParts()
+
+                    if #spots == 0 then
+                        if not warned then
+                            warn("[BrainrotPolice] no Collect parts found in your base")
+                            warned = true
+                        end
+
+                        task.wait(1)
+                    else
+                        warned = false
+
+                        -- stand on each collect pad in turn
+                        for _, pos in ipairs(spots) do
+                            if not env.BSCollect then break end
+
+                            holdAt(pos, COLLECT_HOLD)
+                        end
+
+                        task.wait(FARM_DELAY)
+                    end
+                end
             end
         end)
     end)
