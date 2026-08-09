@@ -12,6 +12,7 @@ return function(section, data)
     env.FBFarm = false
     env.FBFall = false
     env.FBSpeed = false
+    env.FBSlots = false
     env.FBRebirth = false
 
     local setdata = data[tostring(game.PlaceId)] or {}
@@ -19,6 +20,7 @@ return function(section, data)
     setdata.farm = setdata.farm or false
     setdata.fall = setdata.fall or false
     setdata.speed = setdata.speed or false
+    setdata.slots = setdata.slots or false
     setdata.rebirth = setdata.rebirth or false
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
@@ -30,6 +32,9 @@ return function(section, data)
     local FARM_DELAY = 0.2
     local SPEED_AMOUNT = 10
     local SPEED_DELAY = 0.5
+    local SLOT_DELAY = 0.2
+    local FLOORS = 3
+    local SLOTS = 10
 
     local function getChar() return plr.Character end
 
@@ -346,6 +351,51 @@ return function(section, data)
                 end
 
                 task.wait(SPEED_DELAY)
+            end
+        end)
+    end)
+
+    ----------------------------------------------------------------
+    -- auto brainrot upgrader
+    ----------------------------------------------------------------
+
+    elements:Toggle("Auto Brainrot Upgrade", section, setdata.slots, function(v)
+        env.FBSlots = v
+        env.setconfig("slots", v)
+        if not v then return end
+
+        task.spawn(function()
+            local warned = false
+
+            while env.FBSlots do
+                local ev = event("RequestSlotUpgrade")
+
+                if not ev then
+                    if not warned then
+                        warn("[BrainrotPolice] BrainrotStorage.Events.RequestSlotUpgrade not found")
+                        warned = true
+                    end
+
+                    task.wait(1)
+                else
+                    warned = false
+
+                    -- Floor1 Slot1 .. Floor3 Slot10, one after another. The
+                    -- server ignores the ones that are empty or too expensive.
+                    for floor = 1, FLOORS do
+                        for slot = 1, SLOTS do
+                            if not env.FBSlots then break end
+
+                            pcall(function()
+                                ev:FireServer("Floor" .. floor, "Slot" .. slot)
+                            end)
+
+                            task.wait(SLOT_DELAY)
+                        end
+
+                        if not env.FBSlots then break end
+                    end
+                end
             end
         end)
     end)
