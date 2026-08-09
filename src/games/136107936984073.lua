@@ -326,16 +326,19 @@ return function(section, data)
                         -- block the approach
                         startNoclip()
 
-                        -- stage 1: approach point, 80 studs to the LEFT of
-                        -- the win block, using the block's own orientation
-                        -- rather than a world axis. RightVector points right,
-                        -- so negating it gives left no matter how the block
-                        -- is rotated. Flattened on Y so we stay level.
-                        local left = -part.CFrame.RightVector
-                        left = Vector3.new(left.X, 0, left.Z)
+                        -- stage 1: approach point, 80 studs to the LEFT as
+                        -- seen from the PLAYER, not from the block. Left is
+                        -- the character's own RightVector negated, flattened
+                        -- on Y so the approach stays level.
+                        local myRoot = getRoot()
+                        local left
 
-                        if left.Magnitude < 0.05 then
-                            -- degenerate orientation, fall back to world -X
+                        if myRoot then
+                            left = -myRoot.CFrame.RightVector
+                            left = Vector3.new(left.X, 0, left.Z)
+                        end
+
+                        if not left or left.Magnitude < 0.05 then
                             left = Vector3.new(-1, 0, 0)
                         else
                             left = left.Unit
