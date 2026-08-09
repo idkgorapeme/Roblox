@@ -367,7 +367,13 @@ return function(section, data)
 
                             local elapsed = 0
 
-                            while env.MPWin and not touched do
+                            -- set once we are within 3 studs. the run already
+                            -- counts as done at that point, but we keep flying
+                            -- so the character actually lands on the pad.
+                            local done = false
+                            local sinceDone = 0
+
+                            while env.MPWin do
                                 local h = plr.Character
                                     and plr.Character:FindFirstChildOfClass("Humanoid")
                                 if not (h and h.Health > 0) then break end
@@ -384,23 +390,31 @@ return function(section, data)
                                     break
                                 end
 
+                                -- the Touched event fired
+                                if touched then break end
+
                                 -- Noclip keeps CanCollide off, so Touched may
-                                -- never fire. Count it as done once we are
-                                -- within 3 studs of the block.
-                                if r and (r.Position - part.Position).Magnitude <= 3 then
+                                -- never fire. Within 3 studs counts as done.
+                                if not done and r
+                                    and (r.Position - part.Position).Magnitude <= 3 then
+                                    done = true
                                     touched = true
-                                    break
                                 end
 
-                                if glideStep(inside, 3) then
-                                    -- reached the centre without a touch event
-                                    break
+                                -- keep gliding all the way onto the pad, with
+                                -- a short grace period after it counted
+                                local arrived = glideStep(inside, 1)
+
+                                if arrived then break end
+
+                                if done then
+                                    sinceDone = sinceDone + runservice.Heartbeat:Wait()
+                                    if sinceDone > 1.5 then break end
+                                else
+                                    elapsed = elapsed + runservice.Heartbeat:Wait()
+                                    -- never hang here forever
+                                    if elapsed > 15 then break end
                                 end
-
-                                elapsed = elapsed + runservice.Heartbeat:Wait()
-
-                                -- never hang here forever
-                                if elapsed > 15 then break end
                             end
 
                             if touchConn then
@@ -416,7 +430,7 @@ return function(section, data)
                         stopNoclip()
 
                         local waited = 0
-                        while waited < 5 and env.MPWin do
+                        while waited < 3 and env.MPWin do
                             task.wait(0.1)
                             waited = waited + 0.1
                         end
