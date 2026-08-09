@@ -10,6 +10,8 @@ return function(section, data)
 
     env.MPTrain = false
     env.MPWin = false
+    env.MPRebirth = false
+    env.MPDumbbell = false
 
     local setdata = data[tostring(game.PlaceId)] or {}
     setdata.train = setdata.train or false
@@ -18,12 +20,18 @@ return function(section, data)
     setdata.world = setdata.world or "World 1"
     setdata.area = setdata.area or 1
     setdata.windelay = setdata.windelay or 1
+    setdata.rebirth = setdata.rebirth or false
+    setdata.dumbbell = setdata.dumbbell or false
+    setdata.dbfrom = setdata.dbfrom or 4
+    setdata.dbto = setdata.dbto or 44
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
     local trainDelay = tonumber(setdata.traindelay) or 0.1
     local winDelay = tonumber(setdata.windelay) or 1
     local areaNumber = tonumber(setdata.area) or 1
+    local dbFrom = tonumber(setdata.dbfrom) or 4
+    local dbTo = tonumber(setdata.dbto) or 44
 
     ----------------------------------------------------------------
     -- Packages.Net remotes. The names contain a slash, which some
@@ -213,6 +221,107 @@ return function(section, data)
                     end
 
                     task.wait(winDelay)
+                end
+            end
+        end)
+    end)
+
+    ----------------------------------------------------------------
+    -- auto rebirth
+    ----------------------------------------------------------------
+
+    elements:Toggle("Auto Rebirth", section, setdata.rebirth, function(v)
+        env.MPRebirth = v
+        env.setconfig("rebirth", v)
+        if not v then return end
+
+        task.spawn(function()
+            local warned = false
+
+            while env.MPRebirth do
+                local ev = netRemote("RE/Rebirth")
+
+                if ev then
+                    warned = false
+                    pcall(function() ev:FireServer() end)
+                elseif not warned then
+                    warn("[BrainrotPolice] RE/Rebirth not found")
+                    warned = true
+                end
+
+                task.wait(1)
+            end
+        end)
+    end)
+
+    ----------------------------------------------------------------
+    -- auto buy dumbbells
+    --
+    -- Walks Dumbbell<from> .. Dumbbell<to>. The server rejects the ones
+    -- that are too expensive or already owned, so a plain sweep is enough.
+    -- Goes high to low so the best affordable one is bought first.
+    ----------------------------------------------------------------
+
+    elements:Textbox("Dumbbell From (default 4)", section, tostring(dbFrom), function(v)
+        local n = tonumber(v)
+        if not n or n < 1 then return end
+        dbFrom = math.floor(n)
+        env.setconfig("dbfrom", dbFrom)
+    end)
+
+    elements:Textbox("Dumbbell To (default 44)", section, tostring(dbTo), function(v)
+        local n = tonumber(v)
+        if not n or n < 1 then return end
+        dbTo = math.floor(n)
+        env.setconfig("dbto", dbTo)
+    end)
+
+    elements:Button("Buy Dumbbells Once", section, function()
+        local ev = netRemote("RE/BuyDumbbell")
+
+        if not ev then
+            warn("[BrainrotPolice] RE/BuyDumbbell NOT FOUND")
+            return
+        end
+
+        print("[BrainrotPolice] buying Dumbbell" .. dbTo .. " down to Dumbbell" .. dbFrom)
+
+        for i = dbTo, dbFrom, -1 do
+            pcall(function() ev:FireServer("Dumbbell" .. i) end)
+            task.wait(0.1)
+        end
+
+        print("[BrainrotPolice] sweep done")
+    end)
+
+    elements:Toggle("Auto Buy Dumbbell", section, setdata.dumbbell, function(v)
+        env.MPDumbbell = v
+        env.setconfig("dumbbell", v)
+        if not v then return end
+
+        task.spawn(function()
+            local warned = false
+
+            while env.MPDumbbell do
+                local ev = netRemote("RE/BuyDumbbell")
+
+                if not ev then
+                    if not warned then
+                        warn("[BrainrotPolice] RE/BuyDumbbell not found")
+                        warned = true
+                    end
+                    task.wait(1)
+                else
+                    warned = false
+
+                    -- highest first, so we upgrade as soon as we can afford it
+                    for i = dbTo, dbFrom, -1 do
+                        if not env.MPDumbbell then break end
+                        pcall(function() ev:FireServer("Dumbbell" .. i) end)
+                        task.wait(0.1)
+                    end
+
+                    task.wait(2)
                 end
             end
         end)
