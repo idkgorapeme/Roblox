@@ -19,7 +19,7 @@ return function(section, data)
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
     -- fixed, matching the other escape modules
-    local FLY_SPEED = 1000
+    local FLY_SPEED = 200
     local WIN_POS = Vector3.new(-2174, 123, -204)
 
     local function getChar() return plr.Character end
@@ -236,15 +236,12 @@ return function(section, data)
 
                     if not env.MEWin then break end
 
-                    -- hand control back, then pause before the next run
+                    -- hand control back, then straight into the next run
                     stopFlight()
                     stopNoclip()
 
-                    local waited = 0
-                    while waited < 3 and env.MEWin do
-                        task.wait(0.1)
-                        waited = waited + 0.1
-                    end
+                    -- one frame so the character settles, no real pause
+                    runservice.Heartbeat:Wait()
                 end
             end
 
