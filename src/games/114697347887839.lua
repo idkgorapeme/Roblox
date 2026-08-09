@@ -76,7 +76,7 @@ return function(section, data)
     -- exist yet when you are still standing at the start. these settings
     -- control how the script hops closer stage by stage until the wanted
     -- one has loaded.
-    local STAGE_STEP = 2      -- hop over every 2nd stage (2, 4, 6, ...)
+    local STAGE_STEP = 1      -- hop over every stage (1, 2, 3, ...)
     local HOP_OFFSET = 10     -- how many studs next to the win block to stop
     local HOP_WAIT = 0.35     -- pause after a hop so the next chunk can load
     local HOP_TIMEOUT = 5     -- max seconds to wait for one stage to appear
@@ -175,7 +175,7 @@ return function(section, data)
         return nil, "Stage" .. n .. " did not load in time"
     end
 
-    -- hops 10 studs next to stage 2, 4, 6 ... so the map keeps streaming,
+    -- hops 10 studs next to stage 1, 2, 3 ... so the map keeps streaming,
     -- then teleports onto the wanted win block
     local function walkStages(target, verbose)
         -- already streamed in, no need to hop at all
@@ -286,7 +286,7 @@ return function(section, data)
                     task.wait(0.5)
                 else
                     -- stages stream in one after another, so hop 10 studs
-                    -- next to Stage 2, 4, 6 ... until the wanted one exists
+                    -- next to Stage 1, 2, 3 ... until the wanted one exists
                     local ok, err = walkStages(stageNumber, false)
 
                     if not ok then
