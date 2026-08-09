@@ -312,7 +312,39 @@ return function(section, data)
                         -- block the approach
                         startNoclip()
 
-                        -- fly straight INTO the win block.
+                        -- stage 1: approach point, 20 studs to the LEFT as
+                        -- seen from the PLAYER. Left is the character's own
+                        -- RightVector negated, flattened on Y so the approach
+                        -- stays level.
+                        local myRoot = getRoot()
+                        local left
+
+                        if myRoot then
+                            left = -myRoot.CFrame.RightVector
+                            left = Vector3.new(left.X, 0, left.Z)
+                        end
+
+                        if not left or left.Magnitude < 0.05 then
+                            left = Vector3.new(-1, 0, 0)
+                        else
+                            left = left.Unit
+                        end
+
+                        local approach = part.Position + left * 20
+
+                        while env.MPWin and not glideStep(approach, 3) do
+                            local h = plr.Character
+                                and plr.Character:FindFirstChildOfClass("Humanoid")
+                            if not (h and h.Health > 0) then break end
+
+                            if not part.Parent then break end
+
+                            runservice.Heartbeat:Wait()
+                        end
+
+                        if not env.MPWin then break end
+
+                        -- stage 2: fly INTO the win block.
                         --
                         -- The block has a large hitbox and teleports us away
                         -- the moment we touch it, so waiting for "arrived at
