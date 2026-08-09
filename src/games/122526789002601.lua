@@ -18,6 +18,12 @@ return function(section, data)
     local SPAWNER = "CelestialBest"
     local FARM_DELAY = 0.2
 
+    -- the wall run that happens once every time auto farm is switched on
+    local WALL_ZONE = "Zone22"
+    local WALL_INDEX = 9
+    local WALL_ROUNDS = 8
+    local WALL_WAIT = 3
+
     local minMoney = tonumber(setdata.minmoney) or 0
 
     local function getChar() return plr.Character end
@@ -168,6 +174,55 @@ return function(section, data)
         return true
     end
 
+    -- workspace.Zones.Zone22.Walls:GetChildren()[9], the part holding the
+    -- Script, resolved fresh every round because the walls get replaced
+    local function wallPart()
+        local zones = workspace:FindFirstChild("Zones")
+        local zone = zones and zones:FindFirstChild(WALL_ZONE)
+        local walls = zone and zone:FindFirstChild("Walls")
+        if not walls then return nil end
+
+        local wall = walls:GetChildren()[WALL_INDEX]
+        if not wall then return nil end
+
+        if wall:IsA("BasePart") then return wall end
+
+        -- a model, take the part that actually carries the script
+        for _, d in ipairs(wall:GetDescendants()) do
+            if d:IsA("BasePart") and d:FindFirstChildOfClass("Script") then
+                return d
+            end
+        end
+
+        return wall:FindFirstChildWhichIsA("BasePart", true)
+    end
+
+    -- teleports onto that wall WALL_ROUNDS times, waiting in between
+    local function wallRun()
+        for i = 1, WALL_ROUNDS do
+            if not env.BRFarm then return end
+
+            local part = wallPart()
+
+            if not part then
+                warn("[BrainrotPolice] workspace.Zones." .. WALL_ZONE
+                    .. ".Walls[" .. WALL_INDEX .. "] not found")
+                return
+            end
+
+            holdAt(part.Position, 0.2)
+
+            -- stay on it, the wall only pays out while we are standing there
+            local t = os.clock()
+
+            while env.BRFarm and os.clock() - t < WALL_WAIT do
+                local now = wallPart()
+                holdAt(now and now.Position or part.Position, 0.1)
+                task.wait(0.05)
+            end
+        end
+    end
+
     -- workspace.Plot_<your name>
     local function myPlot()
         local plot = workspace:FindFirstChild("Plot_" .. plr.Name)
@@ -199,6 +254,9 @@ return function(section, data)
         task.spawn(function()
             local warned = false
             local home = nil
+
+            -- the wall run comes first, only once per activation
+            wallRun()
 
             while env.BRFarm do
                 if not alive() then
