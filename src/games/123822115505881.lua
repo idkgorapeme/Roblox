@@ -81,6 +81,58 @@ return function(section, data)
     end
 
     ----------------------------------------------------------------
+    -- our own plot
+    ----------------------------------------------------------------
+
+    local cachedPlot = nil
+
+    -- The server hands the plot over on request, that is the only reliable
+    -- way to tell ours apart from everyone else's.
+    local function myPlotModel()
+        if cachedPlot and cachedPlot.Parent then return cachedPlot end
+        cachedPlot = nil
+
+        local fn = remote("GetPlot")
+
+        if fn and fn:IsA("RemoteFunction") then
+            local ok, plot = pcall(function() return fn:InvokeServer() end)
+
+            if ok and typeof(plot) == "Instance" then
+                cachedPlot = plot
+                return plot
+            end
+        end
+
+        -- fall back to an ownership marker on the plot itself
+        local plots = workspace:FindFirstChild("Plots")
+        if not plots then return nil end
+
+        for _, p in ipairs(plots:GetChildren()) do
+            for _, key in ipairs({ "Owner", "Player", "OwnerName", "UserId" }) do
+                local v = p:GetAttribute(key)
+
+                if v == plr.Name or v == plr.UserId then
+                    cachedPlot = p
+                    return p
+                end
+            end
+
+            -- some games park a StringValue/ObjectValue inside instead
+            for _, d in ipairs(p:GetChildren()) do
+                if d:IsA("StringValue") and d.Value == plr.Name then
+                    cachedPlot = p
+                    return p
+                elseif d:IsA("ObjectValue") and d.Value == plr then
+                    cachedPlot = p
+                    return p
+                end
+            end
+        end
+
+        return nil
+    end
+
+    ----------------------------------------------------------------
     -- bases
     ----------------------------------------------------------------
 
@@ -210,6 +262,31 @@ return function(section, data)
     elements:Button("Dump Bases", section, function()
         print("[BrainrotPolice] cash: " .. tostring(myCash()))
 
+        local mine = myPlotModel()
+        print("[BrainrotPolice] my plot: "
+            .. (mine and mine:GetFullName() or "NOT FOUND"))
+
+        if mine then
+            local ranch = mine:FindFirstChild("RanchEntities")
+            print("[BrainrotPolice] RanchEntities: "
+                .. (ranch and (#ranch:GetChildren() .. " animals") or "missing"))
+        end
+
+        local plots = workspace:FindFirstChild("Plots")
+
+        if plots then
+            for i, p in ipairs(plots:GetChildren()) do
+                local attrs = {}
+                for k, val in pairs(p:GetAttributes()) do
+                    attrs[#attrs + 1] = k .. "=" .. tostring(val)
+                end
+
+                print("  Plot[" .. i .. "] " .. p.Name
+                    .. " | mine=" .. tostring(p == mine)
+                    .. " | " .. table.concat(attrs, ", "))
+            end
+        end
+
         for n = BASE_FROM, BASE_TO do
             local base = baseFolder(n)
 
@@ -311,6 +388,54 @@ return function(section, data)
         return nil
     end
 
+    -- StealStand / PickupStand are the real way to take something, a touch
+    -- alone does nothing here. PlaceStand puts it down on our plot.
+    local function takeStand(stand)
+        for _, name in ipairs({ "StealStand", "PickupStand" }) do
+            local fn = remote(name)
+
+            if fn then
+                local ok = pcall(function()
+                    if fn:IsA("RemoteFunction") then
+                        return fn:InvokeServer(stand)
+                    else
+                        fn:FireServer(stand)
+                    end
+                end)
+
+                if ok and not stand.Parent then return true end
+            end
+        end
+
+        return not stand.Parent
+    end
+
+    -- drops whatever we are holding onto our own plot
+    local function placeOnPlot()
+        local plot = myPlotModel()
+        local pos = pivotOf(plot)
+
+        if pos then
+            holdAt(pos + Vector3.new(0, 3, 0), 0.4)
+        end
+
+        for _, name in ipairs({ "PlaceStand", "Drop", "DropEntity" }) do
+            local fn = remote(name)
+
+            if fn then
+                pcall(function()
+                    if fn:IsA("RemoteFunction") then
+                        fn:InvokeServer()
+                    else
+                        fn:FireServer()
+                    end
+                end)
+            end
+        end
+
+        return pos ~= nil
+    end
+
     -- starts off every session, it moves the character
     elements:Toggle("Auto Steal", section, false, function(v)
         env.ZOSteal = v
@@ -359,14 +484,21 @@ return function(section, data)
                             local pos = pivotOf(target)
                             local t = os.clock()
 
+                            -- stand on it, then ask the server for it
                             while env.ZOSteal and target.Parent and os.clock() - t < GRAB_TIME do
                                 holdAt(pivotOf(target) or pos, 0.1)
                                 interact(target)
+
+                                if takeStand(target) then break end
+
                                 task.wait(0.05)
                             end
 
                             if target.Parent then
                                 skipUntil[target] = os.clock() + SKIP_TIME
+                            else
+                                -- got it, carry it home and drop it there
+                                placeOnPlot()
                             end
 
                             task.wait(STEAL_DELAY)
@@ -381,41 +513,12 @@ return function(section, data)
     -- auto collect
     ----------------------------------------------------------------
 
-    -- workspace.Plots:GetChildren()[2].RanchEntities, our own ranch
+    -- <our plot>.RanchEntities, never anybody else's
     local function ranchEntities()
-        local plots = workspace:FindFirstChild("Plots")
-        if not plots then return {} end
+        local plot = myPlotModel()
+        if not plot then return {} end
 
-        local kids = plots:GetChildren()
-        local ranch = nil
-
-        -- prefer the plot that is actually ours
-        for _, p in ipairs(kids) do
-            if p:GetAttribute("Owner") == plr.Name
-                or p:GetAttribute("Player") == plr.Name
-                or p.Name == plr.Name then
-                ranch = p:FindFirstChild("RanchEntities")
-                break
-            end
-        end
-
-        -- fall back to the second plot, that is where ours sits by default
-        if not ranch then
-            local second = kids[2]
-            ranch = second and second:FindFirstChild("RanchEntities") or nil
-        end
-
-        -- last resort, any plot that has one
-        if not ranch then
-            for _, p in ipairs(kids) do
-                local r = p:FindFirstChild("RanchEntities")
-                if r then
-                    ranch = r
-                    break
-                end
-            end
-        end
-
+        local ranch = plot:FindFirstChild("RanchEntities")
         if not ranch then return {} end
 
         local out = {}
@@ -444,7 +547,7 @@ return function(section, data)
 
                     if #animals == 0 then
                         if not warned then
-                            warn("[BrainrotPolice] no RanchEntities found in workspace.Plots")
+                            warn("[BrainrotPolice] your plot or its RanchEntities was not found")
                             warned = true
                         end
 
