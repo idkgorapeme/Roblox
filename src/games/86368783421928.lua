@@ -160,6 +160,27 @@ return function(section, data)
         return out
     end
 
+    -- The spawner folder also holds the spawn markers themselves, plain
+    -- parts that are not worth teleporting to. Only Models count as an
+    -- actual brainrot that can be picked up.
+    local function isBrainrot(item)
+        if not item:IsA("Model") then return false end
+
+        -- a marker is usually a single anchored part in a model, a brainrot
+        -- has a body with several parts or a humanoid
+        if item:FindFirstChildOfClass("Humanoid") then return true end
+
+        local parts = 0
+        for _, d in ipairs(item:GetDescendants()) do
+            if d:IsA("BasePart") then
+                parts = parts + 1
+                if parts > 1 then return true end
+            end
+        end
+
+        return false
+    end
+
     -- everything the chosen spawner has dropped, nearest first. Items are
     -- taken from the spawner folder no matter where they are, and from the
     -- other folders only while they sit in a collection zone.
@@ -189,7 +210,7 @@ return function(section, data)
         -- straight from the spawner, no zone check needed
         if spawner then
             for _, item in ipairs(spawner:GetChildren()) do
-                add(item)
+                if isBrainrot(item) then add(item) end
             end
         end
 
@@ -198,7 +219,7 @@ return function(section, data)
             for _, folder in ipairs(brainrotFolders()) do
                 if folder ~= spawner then
                     for _, item in ipairs(folder:GetChildren()) do
-                        local pos = pivotOf(item)
+                        local pos = isBrainrot(item) and pivotOf(item) or nil
 
                         if pos then
                             for _, zone in ipairs(zones) do
@@ -267,8 +288,15 @@ return function(section, data)
         end
 
         if spawner then
-            print("[BrainrotPolice] spawner " .. spawnerName .. ": "
-                .. #spawner:GetChildren() .. " items")
+            local kids = spawner:GetChildren()
+            print("[BrainrotPolice] spawner " .. spawnerName .. ": " .. #kids .. " children")
+
+            for i = 1, math.min(#kids, 8) do
+                local k = kids[i]
+                print("  " .. k.ClassName .. " | " .. k.Name
+                    .. " | brainrot=" .. tostring(isBrainrot(k))
+                    .. " | " .. tostring(pivotOf(k)))
+            end
         else
             warn("[BrainrotPolice] spawner " .. spawnerName .. " not found")
         end
