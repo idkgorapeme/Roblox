@@ -140,12 +140,13 @@ return function(section, data)
 
                         if root then
                             pcall(function()
-                                root.CFrame = CFrame.new(part.Position + Vector3.new(0, 3, 0))
+                                -- straight onto the button, not above it
+                                root.CFrame = CFrame.new(part.Position)
                                 root.AssemblyLinearVelocity = Vector3.zero
                             end)
                         end
 
-                        task.wait(0.5)
+                        task.wait(0.1)
                     end
                 end
             end
