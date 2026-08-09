@@ -16,6 +16,44 @@ function stuff:Button(str, king, cb)
     newBtn.MouseButton1Click:Connect(cb)
 end
 
+-- Cycles through a list of options. The gui asset has no real dropdown
+-- element, so a button is reused: each click advances to the next option
+-- and the current one is shown in the label.
+function stuff:Dropdown(str, king, options, def, cb)
+    local newBtn = elements.ButtonElement:Clone()
+    newBtn.Parent = king
+
+    options = options or {}
+
+    local index = 1
+    for i, opt in ipairs(options) do
+        if opt == def then
+            index = i
+            break
+        end
+    end
+
+    local function render()
+        local current = options[index]
+        newBtn.TextLabel.Text = str .. ": " .. tostring(current)
+    end
+
+    render()
+
+    newBtn.MouseButton1Click:Connect(function()
+        if #options == 0 then return end
+
+        index = index % #options + 1
+        render()
+
+        if cb then
+            cb(options[index], index)
+        end
+    end)
+
+    return newBtn
+end
+
 function stuff:Toggle(str, king, def, cb)
     local newTog = elements.ToggleElement:Clone()
     newTog.TextLabel.Text = str
