@@ -22,8 +22,16 @@ return function(section, data)
     -- workspace.Map.World<n>.Stages.Stage<n>.NormalWin
     local WORLD_OPTIONS = { "World 1", "World 2", "World 3", "World 4", "World 5" }
 
+    -- World 1 only goes up to stage 9, the rest have 10
+    local WORLD_MAX = { ["World 1"] = 9 }
+
     local worldChoice = tostring(setdata.world or "World 1")
-    local stageNumber = math.clamp(tonumber(setdata.stage) or 1, 1, 10)
+
+    local function maxStage()
+        return WORLD_MAX[worldChoice] or 10
+    end
+
+    local stageNumber = math.clamp(tonumber(setdata.stage) or 1, 1, maxStage())
 
     local function getChar() return plr.Character end
 
@@ -80,6 +88,25 @@ return function(section, data)
     local HOP_WAIT = 0.35     -- pause after a hop so the next chunk can load
     local HOP_TIMEOUT = 5     -- max seconds to wait for one stage to appear
 
+    -- Some stages cannot be reached by jumping straight to the win pad,
+    -- the chunk in between has to be touched first. These return the
+    -- instance to stop at before going for that stage's win block.
+    local WAYPOINTS = {
+        ["World 1"] = {
+            [7] = function(stage)
+                return stage:GetChildren()[8]
+            end,
+            [8] = function(stage)
+                return stage:GetChildren()[17]
+            end,
+            [9] = function(stage)
+                local holder = stage:GetChildren()[10]
+                local ramo = holder and holder:FindFirstChild("Ramo")
+                return ramo and ramo:FindFirstChild("Vine")
+            end,
+        },
+    }
+
     -- resolves workspace.Map.World<n>.Stages.Stage<n>.NormalWin
     local function winPartFor(n)
         local map = workspace:FindFirstChild("Map")
@@ -109,6 +136,26 @@ return function(section, data)
         if inner then return inner end
 
         return nil, "NormalWin has no BasePart inside it"
+    end
+
+    -- workspace.Map.World<n>.Stages.Stage<n>
+    local function stageFolder(n)
+        local map = workspace:FindFirstChild("Map")
+        local world = map and map:FindFirstChild((worldChoice:gsub("%s", "")))
+        local stages = world and world:FindFirstChild("Stages")
+        return stages and stages:FindFirstChild("Stage" .. tostring(n))
+    end
+
+    -- Models have no .Position, so fall back to the pivot
+    local function posOf(inst)
+        if not inst then return nil end
+        if inst:IsA("BasePart") then return inst.Position end
+
+        local ok, pivot = pcall(function() return inst:GetPivot() end)
+        if ok and pivot then return pivot.Position end
+
+        local part = inst:FindFirstChildWhichIsA("BasePart", true)
+        return part and part.Position
     end
 
     -- Moves the whole character, not just the root part. A single CFrame
@@ -170,34 +217,78 @@ return function(section, data)
         return nil, "Stage" .. n .. " did not load in time"
     end
 
-    -- hops 10 studs next to stage 1, 2, 3 ... so the map keeps streaming,
-    -- then teleports onto the wanted win block
-    local function walkStages(target)
-        -- the straight teleport is always tried first, the hop routine
-        -- only runs while the wanted stage has not streamed in yet
-        local direct = winPartFor(target)
-        if direct then
-            teleportTo(direct.Position)
-            return true
-        end
+    -- resolves the waypoint instance for a stage, if one is needed
+    local function waypointPos(n)
+        local list = WAYPOINTS[worldChoice]
+        local fn = list and list[n]
+        if not fn then return nil end
 
-        for n = STAGE_STEP, target - 1, STAGE_STEP do
-            -- every hop may stream in the rest, so re-check the goal first
-            direct = winPartFor(target)
+        local stage = stageFolder(n)
+        if not stage then return nil end
+
+        local ok, inst = pcall(fn, stage)
+        if not ok then return nil end
+
+        return posOf(inst)
+    end
+
+    -- hops 10 studs next to stage 1, 2, 3 ... so the map keeps streaming,
+    -- then teleports onto the wanted win block. Stages listed in WAYPOINTS
+    -- get an extra stop in between, they cannot be reached directly.
+    local function walkStages(target)
+        local needsWaypoint = WAYPOINTS[worldChoice] and WAYPOINTS[worldChoice][target]
+
+        -- the straight teleport is always tried first, the hop routine only
+        -- runs while the wanted stage has not streamed in yet. Stages with a
+        -- waypoint never take this shortcut, they have to be walked into.
+        if not needsWaypoint then
+            local direct = winPartFor(target)
             if direct then
                 teleportTo(direct.Position)
                 return true
+            end
+        end
+
+        for n = STAGE_STEP, target - 1, STAGE_STEP do
+            local hasWp = WAYPOINTS[worldChoice] and WAYPOINTS[worldChoice][n]
+
+            -- every hop may stream in the rest, so re-check the goal first
+            if not needsWaypoint and not hasWp then
+                local direct = winPartFor(target)
+                if direct then
+                    teleportTo(direct.Position)
+                    return true
+                end
             end
 
             local part = waitForStage(n)
 
             -- a missing block is skipped, the next one may still load
             if part then
-                teleportTo(besidePart(part))
+                if hasWp then
+                    -- go through the waypoint, then take the win pad itself
+                    local wp = waypointPos(n)
+                    if wp then
+                        teleportTo(wp)
+                        task.wait(HOP_WAIT)
+                    end
+
+                    teleportTo(part.Position)
+                else
+                    teleportTo(besidePart(part))
+                end
+
                 task.wait(HOP_WAIT)
             end
 
             if not env.MEWin then return false, "cancelled" end
+        end
+
+        -- the target stage itself may also need its waypoint first
+        local wp = waypointPos(target)
+        if wp then
+            teleportTo(wp)
+            task.wait(HOP_WAIT)
         end
 
         local part, err = waitForStage(target)
@@ -210,12 +301,19 @@ return function(section, data)
     elements:Dropdown("World", section, WORLD_OPTIONS, worldChoice, function(v)
         worldChoice = v
         env.setconfig("world", v)
+
+        -- World 1 stops at 9, pull the stage back in if it is out of range
+        local capped = math.clamp(stageNumber, 1, maxStage())
+        if capped ~= stageNumber then
+            stageNumber = capped
+            env.setconfig("stage", stageNumber)
+        end
     end)
 
-    elements:Textbox("Stage (1 - 10)", section, tostring(stageNumber), function(v)
+    elements:Textbox("Stage (World 1: 1 - 9, else 1 - 10)", section, tostring(stageNumber), function(v)
         local n = tonumber(v)
         if not n then return end
-        stageNumber = math.clamp(math.floor(n), 1, 10)
+        stageNumber = math.clamp(math.floor(n), 1, maxStage())
         env.setconfig("stage", stageNumber)
     end)
 
