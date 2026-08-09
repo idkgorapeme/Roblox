@@ -29,6 +29,10 @@ return function(section, data)
     local farmDelay = tonumber(setdata.farmdelay) or 0.2
     local spawnerName = tostring(setdata.spawner or "Celestial")
 
+    -- middle of the Celestial area, used when nothing is up for grabs so we
+    -- stay where the items drop instead of falling out of the zone
+    local CELESTIAL_POS = Vector3.new(155, 5202, -2079)
+
     local function getChar() return plr.Character end
 
     local function getRoot()
@@ -115,16 +119,6 @@ return function(section, data)
         return out
     end
 
-    -- true when pos sits inside the zone's own box, rotation included
-    local function insideZone(zone, pos)
-        local rel = zone.CFrame:PointToObjectSpace(pos)
-        local half = zone.Size * 0.5
-
-        return math.abs(rel.X) <= half.X
-            and math.abs(rel.Y) <= half.Y
-            and math.abs(rel.Z) <= half.Z
-    end
-
     local function pivotOf(inst)
         if inst:IsA("BasePart") then return inst.Position end
 
@@ -160,81 +154,62 @@ return function(section, data)
         return out
     end
 
-    -- The spawner folder also holds the spawn markers themselves, plain
-    -- parts that are not worth teleporting to. Only Models count as an
-    -- actual brainrot that can be picked up.
-    local function isBrainrot(item)
-        if not item:IsA("Model") then return false end
+    -- <item>.InfoGUI.TextLabels.Earnings, something like "$12.5K/s"
+    local function earningsOf(item)
+        local gui = item:FindFirstChild("InfoGUI", true)
+        local labels = gui and gui:FindFirstChild("TextLabels")
+        local label = labels and labels:FindFirstChild("Earnings")
 
-        -- a marker is usually a single anchored part in a model, a brainrot
-        -- has a body with several parts or a humanoid
-        if item:FindFirstChildOfClass("Humanoid") then return true end
-
-        local parts = 0
-        for _, d in ipairs(item:GetDescendants()) do
-            if d:IsA("BasePart") then
-                parts = parts + 1
-                if parts > 1 then return true end
-            end
+        if not label then
+            -- the layout can differ, fall back to a deep search by name
+            label = item:FindFirstChild("Earnings", true)
         end
 
-        return false
+        if not label then return nil, nil end
+
+        local text = tostring(label.Text or "")
+
+        -- pull the number and its suffix out of the label
+        local num, suffix = text:match("([%d%.,]+)%s*([KMBTqQ]?)")
+        if not num then return nil, text end
+
+        num = tonumber((num:gsub(",", "")))
+        if not num then return nil, text end
+
+        local mult = ({
+            K = 1e3, M = 1e6, B = 1e9, T = 1e12, q = 1e15, Q = 1e18,
+        })[suffix] or 1
+
+        return num * mult, text
     end
 
-    -- everything the chosen spawner has dropped, nearest first. Items are
-    -- taken from the spawner folder no matter where they are, and from the
-    -- other folders only while they sit in a collection zone.
+    -- Everything the chosen spawner has dropped that carries an earnings
+    -- label, sorted by earnings, highest first.
     local function zoneBrainrots()
-        local zones = collectionZones()
         local spawner = spawnerFolder()
+        if not spawner then return {} end
 
-        local root = getRoot()
-        local from = root and root.Position or Vector3.zero
         local out = {}
-        local seen = {}
 
-        local function add(item)
-            if seen[item] then return end
+        for _, item in ipairs(spawner:GetChildren()) do
+            local value, text = earningsOf(item)
 
-            local pos = pivotOf(item)
-            if not pos then return end
+            if value then
+                local pos = pivotOf(item)
 
-            seen[item] = true
-            out[#out + 1] = {
-                inst = item,
-                pos = pos,
-                dist = (pos - from).Magnitude,
-            }
-        end
-
-        -- straight from the spawner, no zone check needed
-        if spawner then
-            for _, item in ipairs(spawner:GetChildren()) do
-                if isBrainrot(item) then add(item) end
-            end
-        end
-
-        -- anything else that already landed in a collection zone
-        if #zones > 0 then
-            for _, folder in ipairs(brainrotFolders()) do
-                if folder ~= spawner then
-                    for _, item in ipairs(folder:GetChildren()) do
-                        local pos = isBrainrot(item) and pivotOf(item) or nil
-
-                        if pos then
-                            for _, zone in ipairs(zones) do
-                                if insideZone(zone, pos) then
-                                    add(item)
-                                    break
-                                end
-                            end
-                        end
-                    end
+                if pos then
+                    out[#out + 1] = {
+                        inst = item,
+                        pos = pos,
+                        value = value,
+                        text = text,
+                    }
                 end
             end
         end
 
-        table.sort(out, function(a, b) return a.dist < b.dist end)
+        -- richest first, that is the whole point
+        table.sort(out, function(a, b) return a.value > b.value end)
         return out
     end
 
@@ -293,8 +268,10 @@ return function(section, data)
 
             for i = 1, math.min(#kids, 8) do
                 local k = kids[i]
+                local value, text = earningsOf(k)
                 print("  " .. k.ClassName .. " | " .. k.Name
-                    .. " | brainrot=" .. tostring(isBrainrot(k))
+                    .. " | earnings=" .. tostring(text)
+                    .. " -> " .. tostring(value)
                     .. " | " .. tostring(pivotOf(k)))
             end
         else
@@ -372,12 +349,14 @@ return function(section, data)
                         local found = zoneBrainrots()
 
                         if #found == 0 then
-                            -- the spawner has not dropped anything yet
-                            task.wait(0.5)
+                            -- nothing to grab, wait in the zone so we do not
+                            -- drift off while the next batch spawns
+                            holdAt(CELESTIAL_POS, 0.1)
+                            task.wait(0.3)
                         else
                             warned = false
 
-                            -- walk into the nearest one to pick it up
+                            -- the one with the highest earnings
                             holdAt(found[1].pos, 0.3)
                             task.wait(farmDelay)
                         end
