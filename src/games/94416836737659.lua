@@ -13,6 +13,7 @@ return function(section, data)
     local setdata = data[tostring(game.PlaceId)] or {}
     setdata.farm = setdata.farm or false
     setdata.minmoney = setdata.minmoney or 0
+    setdata.flyspeed = setdata.flyspeed or 60
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
@@ -21,8 +22,14 @@ return function(section, data)
     local SKIP_TIME = 20
 
     -- this game kicks for teleporting, so everything is flown instead
-    local FLY_SPEED = 220
-    local FLY_TIMEOUT = 8
+    local FLY_TIMEOUT = 20
+
+    -- studs per second, kept low on purpose: a fast mover covers the whole
+    -- distance in one frame and the server cannot tell that from a teleport
+    local flySpeed = tonumber(setdata.flyspeed) or 60
+
+    -- studs allowed per frame, at 60 fps that caps the mover at 60 * this
+    local MAX_STEP = 4
 
     local minMoney = tonumber(setdata.minmoney) or 0
 
@@ -259,7 +266,13 @@ return function(section, data)
         end
 
         -- slow down on approach, but never crawl on the last studs
-        local speed = math.clamp(dist * 4, 12, FLY_SPEED)
+        local speed = math.clamp(dist * 2, 8, flySpeed)
+
+        -- Never cross more than MAX_STEP studs in a single frame. Without
+        -- this the character jumps the whole gap at once and the server
+        -- cannot tell it apart from a teleport.
+        speed = math.min(speed, MAX_STEP * 60)
+
         vel.Velocity = delta.Unit * speed
 
         if gyro then
@@ -333,6 +346,13 @@ return function(section, data)
 
         return nil
     end
+
+    elements:Textbox("Fly Speed (default 60)", section, tostring(flySpeed), function(v)
+        local n = tonumber(v)
+        if not n or n < 5 then return end
+        flySpeed = math.min(n, 500)
+        env.setconfig("flyspeed", flySpeed)
+    end)
 
     -- accepts 5000, 5k, 2.5m and so on
     elements:Textbox("Min Revenue (0 = any)", section, tostring(minMoney), function(v)
