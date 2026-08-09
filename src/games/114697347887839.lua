@@ -91,21 +91,37 @@ return function(section, data)
     local PAD_HOLD = 0.3      -- minimum time to sit on a win pad
     local PAD_TIMEOUT = 2     -- give up waiting for the win to register
 
-    -- Some stages cannot be reached by jumping straight to the win pad,
-    -- the chunk in between has to be touched first. These return the
-    -- instance to stop at before going for that stage's win block.
+    -- Some stages cannot be reached by jumping straight to the win pad, the
+    -- chunk in between has to be touched first. Each entry returns a LIST of
+    -- instances that get hopped through one after another until the stage's
+    -- win block has streamed in.
     local WAYPOINTS = {
         ["World 1"] = {
             [7] = function(stage)
-                return stage:GetChildren()[8]
+                return { stage:GetChildren()[8] }
             end,
             [8] = function(stage)
-                return stage:GetChildren()[17]
+                return { stage:GetChildren()[17] }
             end,
             [9] = function(stage)
-                local holder = stage:GetChildren()[10]
-                local ramo = holder and holder:FindFirstChild("Ramo")
-                return ramo and ramo:FindFirstChild("Vine")
+                -- the vines are spread over the whole stage, collect them all
+                local out = {}
+
+                for _, d in pairs(stage:GetDescendants()) do
+                    if d.Name == "Vine" then
+                        out[#out + 1] = d
+                    end
+                end
+
+                -- fall back to the known path if the names ever change
+                if #out == 0 then
+                    local holder = stage:GetChildren()[10]
+                    local ramo = holder and holder:FindFirstChild("Ramo")
+                    local vine = ramo and ramo:FindFirstChild("Vine")
+                    if vine then out[1] = vine end
+                end
+
+                return out
             end,
         },
     }
@@ -296,8 +312,9 @@ return function(section, data)
         return nil, "Stage" .. n .. " did not load in time"
     end
 
-    -- resolves the waypoint instance for a stage, if one is needed
-    local function waypointPos(n)
+    -- resolves the waypoint positions for a stage, ordered into a chain that
+    -- starts at the player and always continues to the nearest next one
+    local function waypointPositions(n)
         local list = WAYPOINTS[worldChoice]
         local fn = list and list[n]
         if not fn then return nil end
@@ -306,30 +323,73 @@ return function(section, data)
         if not stage then return nil end
 
         -- the children stream in one by one, give them a moment
+        local found = nil
         local t = os.clock()
 
         while os.clock() - t < HOP_TIMEOUT do
             if not env.MEWin then return nil end
 
-            local ok, inst = pcall(fn, stage)
-            local pos = ok and posOf(inst) or nil
-            if pos then return pos end
+            local ok, insts = pcall(fn, stage)
+
+            if ok and type(insts) == "table" and #insts > 0 then
+                local out = {}
+
+                for _, inst in ipairs(insts) do
+                    local pos = posOf(inst)
+                    if pos then out[#out + 1] = pos end
+                end
+
+                if #out > 0 then
+                    found = out
+                    break
+                end
+            end
 
             task.wait(0.1)
         end
 
-        return nil
+        if not found then return nil end
+        if #found == 1 then return found end
+
+        -- greedy nearest neighbour so we do not zigzag across the stage
+        local root = getRoot()
+        local from = root and root.Position or found[1]
+        local chain = {}
+
+        while #found > 0 do
+            local best, bestDist = 1, (found[1] - from).Magnitude
+
+            for i = 2, #found do
+                local d = (found[i] - from).Magnitude
+                if d < bestDist then
+                    best, bestDist = i, d
+                end
+            end
+
+            from = found[best]
+            chain[#chain + 1] = from
+            table.remove(found, best)
+        end
+
+        return chain
     end
 
     -- walks into one stage: waypoint first if it has one, then the win pad.
     -- Stages on the way only get a stop next to the pad, the wanted stage is
     -- the one we actually land on.
     local function hopTo(n, isTarget)
-        local wp = waypointPos(n)
+        local chain = waypointPositions(n)
 
-        if wp then
-            teleportTo(wp)
-            task.wait(HOP_WAIT)
+        if chain then
+            for _, pos in ipairs(chain) do
+                if not env.MEWin then return false, "cancelled" end
+
+                -- stop hopping as soon as the win block has streamed in
+                if winPartFor(n) then break end
+
+                teleportTo(pos)
+                task.wait(HOP_WAIT)
+            end
         end
 
         local part, err = waitForStage(n)
