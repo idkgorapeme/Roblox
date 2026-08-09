@@ -18,6 +18,7 @@ return function(section, data)
     local setdata = data[tostring(game.PlaceId)] or {}
     setdata.guards = setdata.guards or false
     setdata.farm = setdata.farm or false
+    setdata.minmoney = setdata.minmoney or 0
     setdata.fall = setdata.fall or false
     setdata.speed = setdata.speed or false
     setdata.slots = setdata.slots or false
@@ -35,6 +36,9 @@ return function(section, data)
     local SLOT_DELAY = 0.2
     local FLOORS = 3
     local SLOTS = 10
+
+    -- items earning less than this are ignored, 0 takes everything
+    local minMoney = tonumber(setdata.minmoney) or 0
 
     local function getChar() return plr.Character end
 
@@ -146,7 +150,7 @@ return function(section, data)
         return num * mult
     end
 
-    -- the richest dropped item first
+    -- the richest dropped item first, ignoring anything below minMoney
     local function bestItem()
         local spawner = spawnerFolder()
         if not spawner then return nil end
@@ -156,7 +160,7 @@ return function(section, data)
         for _, item in ipairs(spawner:GetChildren()) do
             local value = earningsOf(item)
 
-            if value and value > bestValue and pivotOf(item) then
+            if value and value >= minMoney and value > bestValue and pivotOf(item) then
                 best, bestValue = item, value
             end
         end
@@ -221,6 +225,22 @@ return function(section, data)
         local direct = workspace:FindFirstChild("Plot_" .. plr.Name)
         return direct and pivotOf(direct) or nil
     end
+
+    -- accepts 5000, 5k, 2.5m and so on
+    elements:Textbox("Min Money (0 = any)", section, tostring(minMoney), function(v)
+        local text = tostring(v):gsub("%s", ""):gsub(",", "")
+        local num, suffix = text:match("^([%d%.]+)([KkMmBbTtQq]?)$")
+
+        local n = tonumber(num)
+        if not n then return end
+
+        local mult = ({
+            k = 1e3, m = 1e6, b = 1e9, t = 1e12, q = 1e15,
+        })[suffix:lower()] or 1
+
+        minMoney = n * mult
+        env.setconfig("minmoney", minMoney)
+    end)
 
     -- starts off every session, it moves the character
     elements:Toggle("Auto Farm", section, false, function(v)
