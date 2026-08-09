@@ -20,7 +20,7 @@ return function(section, data)
 
     -- fixed, matching the other escape modules
     local FLY_SPEED = 1000
-    local WIN_POS = Vector3.new(-9457, 388, -242)
+    local WIN_POS = Vector3.new(-2174, 123, -204)
 
     local function getChar() return plr.Character end
 
