@@ -11,6 +11,8 @@ return function(section, data)
     env.MGFarm = false
     env.MGSell = false
     env.MGStrength = false
+    env.MGRebirth = false
+    env.MGUpgrade = false
 
     local setdata = data[tostring(game.PlaceId)] or {}
     setdata.farm = setdata.farm or false
@@ -18,6 +20,8 @@ return function(section, data)
     setdata.minmoney = setdata.minmoney or 0
     setdata.sell = setdata.sell or false
     setdata.strength = setdata.strength or false
+    setdata.rebirth = setdata.rebirth or false
+    setdata.upgrade = setdata.upgrade or false
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
@@ -27,6 +31,7 @@ return function(section, data)
 
     -- the game has an anticheat, so the click loop stays at a human rate
     local CLICK_DELAY = 0.1
+    local UPGRADE_DELAY = 0.5
 
     local stageNumber = math.max(1, math.floor(tonumber(setdata.stage) or 30))
     local minMoney = tonumber(setdata.minmoney) or 0
@@ -351,6 +356,65 @@ return function(section, data)
                 end
 
                 task.wait(CLICK_DELAY)
+            end
+        end)
+    end)
+
+    ----------------------------------------------------------------
+    -- auto upgrade
+    ----------------------------------------------------------------
+
+    -- UpgradeSlot:FireServer("Cash")
+    elements:Toggle("Auto Upgrade", section, setdata.upgrade, function(v)
+        env.MGUpgrade = v
+        env.setconfig("upgrade", v)
+        if not v then return end
+
+        task.spawn(function()
+            local warned = false
+
+            while env.MGUpgrade do
+                local ev = serverRemote("UpgradeSlot")
+
+                if ev then
+                    warned = false
+                    -- the server ignores it when there is not enough cash
+                    pcall(function() ev:FireServer("Cash") end)
+                elseif not warned then
+                    warn("[BrainrotPolice] Remotes.Server.UpgradeSlot not found")
+                    warned = true
+                end
+
+                task.wait(UPGRADE_DELAY)
+            end
+        end)
+    end)
+
+    ----------------------------------------------------------------
+    -- auto rebirth
+    ----------------------------------------------------------------
+
+    -- Rebirth:FireServer("Rebirth")
+    elements:Toggle("Auto Rebirth", section, setdata.rebirth, function(v)
+        env.MGRebirth = v
+        env.setconfig("rebirth", v)
+        if not v then return end
+
+        task.spawn(function()
+            local warned = false
+
+            while env.MGRebirth do
+                local ev = serverRemote("Rebirth")
+
+                if ev then
+                    warned = false
+                    pcall(function() ev:FireServer("Rebirth") end)
+                elseif not warned then
+                    warn("[BrainrotPolice] Remotes.Server.Rebirth not found")
+                    warned = true
+                end
+
+                task.wait(1)
             end
         end)
     end)
