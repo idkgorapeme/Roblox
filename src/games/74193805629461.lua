@@ -5,14 +5,17 @@ return function(section, data)
     local env = getgenv()
 
     local players = game:GetService("Players")
+    local replicatedstorage = game:GetService("ReplicatedStorage")
     local plr = players.LocalPlayer
 
     env.MGFarm = false
+    env.MGSell = false
 
     local setdata = data[tostring(game.PlaceId)] or {}
     setdata.farm = setdata.farm or false
     setdata.stage = setdata.stage or 30
     setdata.minmoney = setdata.minmoney or 0
+    setdata.sell = setdata.sell or false
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
@@ -34,6 +37,13 @@ return function(section, data)
         local char = getChar()
         local hum = char and char:FindFirstChildOfClass("Humanoid")
         return hum ~= nil and hum.Health > 0
+    end
+
+    -- ReplicatedStorage.Remotes.Server.<name>
+    local function serverRemote(name)
+        local remotes = replicatedstorage:FindFirstChild("Remotes")
+        local server = remotes and remotes:FindFirstChild("Server")
+        return server and server:FindFirstChild(name) or nil
     end
 
     local function pivotOf(inst)
@@ -280,6 +290,34 @@ return function(section, data)
                         end
                     end
                 end
+            end
+        end)
+    end)
+
+    ----------------------------------------------------------------
+    -- auto sell
+    ----------------------------------------------------------------
+
+    elements:Toggle("Auto Sell", section, setdata.sell, function(v)
+        env.MGSell = v
+        env.setconfig("sell", v)
+        if not v then return end
+
+        task.spawn(function()
+            local warned = false
+
+            while env.MGSell do
+                local ev = serverRemote("SellAllLoot")
+
+                if ev then
+                    warned = false
+                    pcall(function() ev:FireServer() end)
+                elseif not warned then
+                    warn("[BrainrotPolice] Remotes.Server.SellAllLoot not found")
+                    warned = true
+                end
+
+                task.wait(1)
             end
         end)
     end)
