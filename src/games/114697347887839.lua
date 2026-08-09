@@ -146,6 +146,26 @@ return function(section, data)
                 return stageHops(stage, 10)
             end,
         },
+        ["World 2"] = {
+            -- after win 5 the way on runs over Stage6.Vine
+            [6] = function(stage)
+                local out = {}
+
+                local direct = stage:FindFirstChild("Vine")
+                if direct then out[1] = direct end
+
+                -- there can be more than one, take them all
+                for _, d in pairs(stage:GetDescendants()) do
+                    if d.Name == "Vine" and d ~= direct then
+                        out[#out + 1] = d
+                    end
+                end
+
+                if #out > 0 then return out end
+
+                return stageHops(stage, 1)
+            end,
+        },
     }
 
     -- resolves workspace.Map.World<n>.Stages.Stage<n>.NormalWin
