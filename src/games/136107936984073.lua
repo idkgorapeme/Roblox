@@ -167,6 +167,42 @@ return function(section, data)
     ----------------------------------------------------------------
 
     local flyBV, flyBG
+    local noclipConn
+
+    local function startNoclip()
+        if noclipConn then return end
+
+        noclipConn = runservice.Stepped:Connect(function()
+            local char = plr.Character
+            if not char then return end
+
+            for _, part in pairs(char:GetDescendants()) do
+                if part:IsA("BasePart") and part.CanCollide then
+                    part.CanCollide = false
+                end
+            end
+        end)
+
+        if env.BrainrotPolice and env.BrainrotPolice.track then
+            env.BrainrotPolice.track(noclipConn)
+        end
+    end
+
+    local function stopNoclip()
+        if noclipConn then
+            noclipConn:Disconnect()
+            noclipConn = nil
+        end
+
+        local char = plr.Character
+        if char then
+            for _, part in pairs(char:GetDescendants()) do
+                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                    pcall(function() part.CanCollide = true end)
+                end
+            end
+        end
+    end
 
     local function stopFlight()
         if flyBV then pcall(function() flyBV:Destroy() end) flyBV = nil end
@@ -250,12 +286,14 @@ return function(section, data)
     end
 
     -- starts off every session, it moves the character
+    -- starts off every session, it moves the character
     elements:Toggle("Auto Win", section, false, function(v)
         env.MPWin = v
         env.setconfig("win", v)
 
         if not v then
             stopFlight()
+            stopNoclip()
             return
         end
 
@@ -271,6 +309,7 @@ return function(section, data)
                         warned = true
                     end
                     stopFlight()
+                    stopNoclip()
                     task.wait(1)
                 else
                     warned = false
@@ -283,9 +322,13 @@ return function(section, data)
                         if flyBV then flyBV.Velocity = Vector3.zero end
                         task.wait(0.5)
                     else
-                        local target = part.Position + Vector3.new(0, 3, 0)
+                        -- noclip so walls and the win block itself cannot
+                        -- block the approach
+                        startNoclip()
 
-                        -- fly there instead of teleporting
+                        -- always 5 studs above the win part
+                        local target = part.Position + Vector3.new(0, 5, 0)
+
                         while env.MPWin and not glideStep(target, 4) do
                             local h = plr.Character
                                 and plr.Character:FindFirstChildOfClass("Humanoid")
@@ -298,12 +341,22 @@ return function(section, data)
 
                         if not env.MPWin then break end
 
-                        task.wait(winDelay)
+                        -- arrived: cut the flight and hand control back, then
+                        -- pause before the next run
+                        stopFlight()
+                        stopNoclip()
+
+                        local waited = 0
+                        while waited < 5 and env.MPWin do
+                            task.wait(0.1)
+                            waited = waited + 0.1
+                        end
                     end
                 end
             end
 
             stopFlight()
+            stopNoclip()
         end)
     end)
 
