@@ -326,7 +326,7 @@ return function(section, data)
                         -- block the approach
                         startNoclip()
 
-                        -- stage 1: approach point, 80 studs to the LEFT as
+                        -- stage 1: approach point, 20 studs to the LEFT as
                         -- seen from the PLAYER, not from the block. Left is
                         -- the character's own RightVector negated, flattened
                         -- on Y so the approach stays level.
@@ -344,7 +344,7 @@ return function(section, data)
                             left = left.Unit
                         end
 
-                        local approach = part.Position + left * 80
+                        local approach = part.Position + left * 20
 
                         while env.MPWin and not glideStep(approach, 3) do
                             local h = plr.Character
