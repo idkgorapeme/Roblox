@@ -20,18 +20,21 @@ return function(section, data)
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
     -- workspace.Map.World<n>.Stages.Stage<n>.NormalWin
-    local WORLD_OPTIONS = { "World 1", "World 2", "World 3", "World 4", "World 5" }
+    local WORLD_OPTIONS = { "World 1", "World 2", "World 3", "World 4" }
 
-    -- World 1 only goes up to stage 9, the rest have 10
-    local WORLD_MAX = { ["World 1"] = 9 }
+    -- every world runs from stage 1 to 9
+    local MAX_STAGE = 9
 
     local worldChoice = tostring(setdata.world or "World 1")
 
-    local function maxStage()
-        return WORLD_MAX[worldChoice] or 10
+    -- the dropdown can hold a stale value from an older config
+    local valid = false
+    for _, w in ipairs(WORLD_OPTIONS) do
+        if w == worldChoice then valid = true end
     end
+    if not valid then worldChoice = "World 1" end
 
-    local stageNumber = math.clamp(tonumber(setdata.stage) or 1, 1, maxStage())
+    local stageNumber = math.clamp(tonumber(setdata.stage) or 1, 1, MAX_STAGE)
 
     local function getChar() return plr.Character end
 
@@ -522,19 +525,12 @@ return function(section, data)
     elements:Dropdown("World", section, WORLD_OPTIONS, worldChoice, function(v)
         worldChoice = v
         env.setconfig("world", v)
-
-        -- World 1 stops at 9, pull the stage back in if it is out of range
-        local capped = math.clamp(stageNumber, 1, maxStage())
-        if capped ~= stageNumber then
-            stageNumber = capped
-            env.setconfig("stage", stageNumber)
-        end
     end)
 
-    elements:Textbox("Stage (World 1: 1 - 9, else 1 - 10)", section, tostring(stageNumber), function(v)
+    elements:Textbox("Stage (1 - 9)", section, tostring(stageNumber), function(v)
         local n = tonumber(v)
         if not n then return end
-        stageNumber = math.clamp(math.floor(n), 1, maxStage())
+        stageNumber = math.clamp(math.floor(n), 1, MAX_STAGE)
         env.setconfig("stage", stageNumber)
     end)
 
