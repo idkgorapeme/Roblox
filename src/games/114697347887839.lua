@@ -85,6 +85,9 @@ return function(section, data)
     -- one has loaded.
     local STAGE_STEP = 1      -- hop over every stage (1, 2, 3, ...)
     local HOP_OFFSET = 10     -- how many studs next to the win block to stop
+    -- fixed world direction for that offset, never the camera or character
+    -- facing, so the hop always lands on the same side of a pad
+    local HOP_DIR = Vector3.new(-1, 0, 0)
     local HOP_WAIT = 0.25     -- pause after a hop so the next chunk can load
     local HOP_TIMEOUT = 6     -- max seconds to wait for one stage to appear
     local TP_HOLD = 0.2       -- seconds to keep re-applying a teleport
@@ -271,27 +274,14 @@ return function(section, data)
             + math.abs(cf.LookVector:Dot(dir)) * size.Z * 0.5
     end
 
-    -- A spot clear of the block, HOP_OFFSET studs to the player's left.
-    -- Win pads can be huge, so the block's own size is added on top of the
-    -- offset, otherwise we still end up standing inside it.
+    -- A spot clear of the block, HOP_OFFSET studs to the side. The direction
+    -- is a fixed world axis on purpose, it must not depend on where the
+    -- camera or the character happens to be looking.
     local function besidePart(part)
-        local root = getRoot()
-        local dir
+        local dir = HOP_DIR
 
-        if root then
-            dir = root.CFrame.RightVector
-            dir = Vector3.new(dir.X, 0, dir.Z)
-        end
-
-        if not dir or dir.Magnitude < 0.05 then
-            dir = Vector3.new(1, 0, 0)
-        else
-            dir = dir.Unit
-        end
-
-        -- minus right is left
         local dist = extentAlong(part, dir) + HOP_OFFSET
-        return part.Position - dir * dist
+        return part.Position + dir * dist
     end
 
     -- waits until workspace.Map.World<n>.Stages.Stage<n> exists
