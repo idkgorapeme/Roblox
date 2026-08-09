@@ -288,55 +288,6 @@ return function(section, data)
         return out
     end
 
-    elements:Button("Dump Farm Info", section, function()
-        local folder = brainrotFolder()
-
-        if not folder then
-            warn("[BrainrotPolice] workspace.Brainrots not found")
-
-            local names = {}
-            for _, c in ipairs(workspace:GetChildren()) do
-                names[#names + 1] = c.Name
-            end
-            print("[BrainrotPolice] workspace children: " .. table.concat(names, ", "))
-            return
-        end
-
-        local kids = folder:GetChildren()
-        print("[BrainrotPolice] workspace.Brainrots: " .. #kids .. " children")
-        print("[BrainrotPolice] min cash/s set to " .. tostring(minMoney))
-
-        for i = 1, math.min(#kids, 10) do
-            local item = kids[i]
-            local gui = item:FindFirstChild("InfoGui", true)
-            local frame = gui and gui:FindFirstChild("Frame")
-            local label = frame and frame:FindFirstChild("CharCash")
-                or item:FindFirstChild("CharCash", true)
-
-            print("  " .. item.ClassName .. " | " .. item.Name
-                .. " | InfoGui=" .. tostring(gui and gui:GetFullName() or "nil")
-                .. " | CharCash=" .. tostring(label and label.Text or "nil")
-                .. " -> " .. tostring(cashOf(item))
-                .. " | pos=" .. tostring(pivotOf(item)))
-        end
-
-        local best = bestItem()
-        print("[BrainrotPolice] best over the floor: "
-            .. (best and (best.Name .. " @ " .. tostring(pivotOf(best))) or "none"))
-
-        local bases = workspace:FindFirstChild("Bases")
-        if bases then
-            local names = {}
-            for _, b in ipairs(bases:GetChildren()) do
-                names[#names + 1] = b.Name
-            end
-            print("[BrainrotPolice] workspace.Bases: " .. table.concat(names, ", "))
-        end
-
-        print("[BrainrotPolice] Base attribute: " .. tostring(plr:GetAttribute("Base")))
-        print("[BrainrotPolice] my base pos: " .. tostring(myBase()))
-    end)
-
     -- accepts 500000, 500k, 2.5m and so on
     elements:Textbox("Min Cash/s (default 500k)", section, tostring(minMoney), function(v)
         local text = tostring(v):gsub("%s", ""):gsub(",", "")
