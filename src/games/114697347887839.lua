@@ -165,6 +165,26 @@ return function(section, data)
 
                 return stageHops(stage, 1)
             end,
+            -- after win 7 the way on runs over the presses
+            [8] = function(stage)
+                local out = {}
+
+                -- the known entry point comes first
+                local first = stage:GetChildren()[19]
+                local main = first and first:FindFirstChild("Main")
+                if main then out[1] = main end
+
+                -- then every other press on the stage
+                for _, d in pairs(stage:GetDescendants()) do
+                    if d.Name == "Press" and d ~= main then
+                        out[#out + 1] = d
+                    end
+                end
+
+                if #out > 0 then return out end
+
+                return stageHops(stage, 19)
+            end,
         },
     }
 
