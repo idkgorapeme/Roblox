@@ -95,8 +95,68 @@ return function(section, data)
         end
 
         if win:IsA("BasePart") then return win end
-        return win:FindFirstChildWhichIsA("BasePart", true), nil
+
+        local inner = win:FindFirstChildWhichIsA("BasePart", true)
+        if inner then return inner end
+
+        return nil, "NormalWin has no BasePart inside it"
     end
+
+    -- Moves the whole character, not just the root part. A single CFrame
+    -- write is easy for the game to undo, so it is applied over a few
+    -- frames and the velocity is cleared each time.
+    local function teleportTo(pos)
+        local char = getChar()
+        local root = getRoot()
+        if not char or not root then return false end
+
+        local target = CFrame.new(pos)
+
+        for _ = 1, 3 do
+            pcall(function()
+                -- PivotTo moves every welded part with it
+                char:PivotTo(target)
+                root.AssemblyLinearVelocity = Vector3.zero
+                root.AssemblyAngularVelocity = Vector3.zero
+            end)
+
+            task.wait()
+        end
+
+        return true
+    end
+
+    elements:Button("Test Win TP", section, function()
+        local part, err = winPart()
+
+        if not part then
+            warn("[BrainrotPolice] " .. tostring(err or "unknown"))
+
+            -- show what actually exists so the path can be corrected
+            local map = workspace:FindFirstChild("Map")
+            if map then
+                local names = {}
+                for _, c in pairs(map:GetChildren()) do
+                    names[#names + 1] = c.Name
+                end
+                print("[BrainrotPolice] workspace.Map children: "
+                    .. table.concat(names, ", "))
+            end
+            return
+        end
+
+        print("[BrainrotPolice] target: " .. part:GetFullName())
+        print("[BrainrotPolice] position: " .. tostring(part.Position))
+
+        local root = getRoot()
+        print("[BrainrotPolice] before: " .. (root and tostring(root.Position) or "no root"))
+
+        teleportTo(part.Position)
+        task.wait(0.3)
+
+        root = getRoot()
+        print("[BrainrotPolice] after:  " .. (root and tostring(root.Position) or "no root"))
+    end)
 
     elements:Dropdown("World", section, WORLD_OPTIONS, worldChoice, function(v)
         worldChoice = v
@@ -136,15 +196,9 @@ return function(section, data)
                     else
                         warned = false
 
-                        local root = getRoot()
-
-                        if root then
-                            pcall(function()
-                                -- straight onto the button, not above it
-                                root.CFrame = CFrame.new(part.Position)
-                                root.AssemblyLinearVelocity = Vector3.zero
-                            end)
-                        end
+                        pcall(function()
+                            teleportTo(part.Position)
+                        end)
 
                         task.wait(0.1)
                     end
