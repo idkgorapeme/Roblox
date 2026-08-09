@@ -85,9 +85,6 @@ return function(section, data)
     -- one has loaded.
     local STAGE_STEP = 1      -- hop over every stage (1, 2, 3, ...)
     local HOP_OFFSET = 10     -- how many studs next to the win block to stop
-    -- fixed world direction for that offset, never the camera or character
-    -- facing, so the hop always lands on the same side of a pad
-    local HOP_DIR = Vector3.new(-1, 0, 0)
     local HOP_WAIT = 0.25     -- pause after a hop so the next chunk can load
     local HOP_TIMEOUT = 6     -- max seconds to wait for one stage to appear
     local TP_HOLD = 0.2       -- seconds to keep re-applying a teleport
@@ -274,14 +271,63 @@ return function(section, data)
             + math.abs(cf.LookVector:Dot(dir)) * size.Z * 0.5
     end
 
-    -- A spot clear of the block, HOP_OFFSET studs to the side. The direction
-    -- is a fixed world axis on purpose, it must not depend on where the
-    -- camera or the character happens to be looking.
-    local function besidePart(part)
-        local dir = HOP_DIR
+    -- flattens a vector onto the ground plane, nil if it points straight up
+    local function flat(v)
+        local out = Vector3.new(v.X, 0, v.Z)
+        if out.Magnitude < 0.05 then return nil end
+        return out.Unit
+    end
 
-        local dist = extentAlong(part, dir) + HOP_OFFSET
-        return part.Position + dir * dist
+    -- The block's forward direction along the course. Win pads are often
+    -- rotated so that Look points up or sideways, so the most horizontal
+    -- axis of the block is used instead of assuming LookVector.
+    local function facingOf(part)
+        local cf = part.CFrame
+
+        -- a pad is a flat slab, its thinnest axis is the one pointing up,
+        -- the two others lie in the ground plane
+        local candidates = {
+            { v = cf.LookVector, size = part.Size.Z },
+            { v = cf.RightVector, size = part.Size.X },
+            { v = cf.UpVector, size = part.Size.Y },
+        }
+
+        local best, bestFlat = nil, nil
+
+        for _, c in ipairs(candidates) do
+            local f = flat(c.v)
+
+            -- prefer the axis that is most horizontal, ties go to the longer
+            -- side of the block so we offset along the pad, not through it
+            if f then
+                local horiz = math.abs(c.v.Y)
+                if not best or horiz < best.horiz then
+                    best = { horiz = horiz, size = c.size }
+                    bestFlat = f
+                end
+            end
+        end
+
+        return bestFlat
+    end
+
+    -- A spot clear of the block, HOP_OFFSET studs to its LEFT. The side is
+    -- taken from the block's own orientation, never from the camera or the
+    -- character facing, so it is always the same side and never behind.
+    local function besidePart(part)
+        local fwd = facingOf(part) or Vector3.new(0, 0, -1)
+
+        -- left of the facing direction, on the ground plane
+        local left = Vector3.yAxis:Cross(fwd)
+
+        if left.Magnitude < 0.05 then
+            left = Vector3.new(-1, 0, 0)
+        else
+            left = left.Unit
+        end
+
+        local dist = extentAlong(part, left) + HOP_OFFSET
+        return part.Position + left * dist
     end
 
     -- waits until workspace.Map.World<n>.Stages.Stage<n> exists
