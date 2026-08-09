@@ -227,9 +227,19 @@ return function(section, data)
         return true
     end
 
-    -- HOP_OFFSET studs to the left of the block instead of on top of it.
-    -- The block's own orientation points the wrong way, so the direction is
-    -- taken from the player and flattened on Y.
+    -- how far a part reaches along a direction, so we can step fully clear
+    -- of it instead of landing inside a big win pad
+    local function extentAlong(part, dir)
+        local cf, size = part.CFrame, part.Size
+
+        return math.abs(cf.RightVector:Dot(dir)) * size.X * 0.5
+            + math.abs(cf.UpVector:Dot(dir)) * size.Y * 0.5
+            + math.abs(cf.LookVector:Dot(dir)) * size.Z * 0.5
+    end
+
+    -- A spot clear of the block, HOP_OFFSET studs to the player's left.
+    -- Win pads can be huge, so the block's own size is added on top of the
+    -- offset, otherwise we still end up standing inside it.
     local function besidePart(part)
         local root = getRoot()
         local dir
@@ -246,7 +256,8 @@ return function(section, data)
         end
 
         -- minus right is left
-        return part.Position - dir * HOP_OFFSET
+        local dist = extentAlong(part, dir) + HOP_OFFSET
+        return part.Position - dir * dist
     end
 
     -- waits until workspace.Map.World<n>.Stages.Stage<n> exists
