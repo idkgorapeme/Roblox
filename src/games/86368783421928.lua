@@ -11,6 +11,7 @@ return function(section, data)
     env.FBGuards = false
     env.FBFarm = false
     env.FBSell = false
+    env.FBSpeed = false
     env.FBRebirth = false
 
     local setdata = data[tostring(game.PlaceId)] or {}
@@ -19,6 +20,9 @@ return function(section, data)
     setdata.farm = setdata.farm or false
     setdata.farmdelay = setdata.farmdelay or 0.2
     setdata.spawner = setdata.spawner or "Celestial"
+    setdata.speed = setdata.speed or false
+    setdata.speedamount = setdata.speedamount or 10
+    setdata.speeddelay = setdata.speeddelay or 0.5
     setdata.sell = setdata.sell or false
     setdata.selldelay = setdata.selldelay or 1
     setdata.rebirth = setdata.rebirth or false
@@ -28,6 +32,8 @@ return function(section, data)
     local guardDelay = tonumber(setdata.guarddelay) or 0.5
     local farmDelay = tonumber(setdata.farmdelay) or 0.2
     local spawnerName = tostring(setdata.spawner or "Celestial")
+    local speedAmount = tonumber(setdata.speedamount) or 10
+    local speedDelay = tonumber(setdata.speeddelay) or 0.5
 
     -- middle of the Celestial area, used when nothing is up for grabs so we
     -- stay where the items drop instead of falling out of the zone
@@ -362,6 +368,49 @@ return function(section, data)
                         end
                     end
                 end
+            end
+        end)
+    end)
+
+    ----------------------------------------------------------------
+    -- auto upgrade speed
+    ----------------------------------------------------------------
+
+    elements:Textbox("Speed Amount (default 10)", section, tostring(speedAmount), function(v)
+        local n = tonumber(v)
+        if not n or n < 1 then return end
+        speedAmount = math.floor(n)
+        env.setconfig("speedamount", speedAmount)
+    end)
+
+    elements:Textbox("Speed Delay (default 0.5)", section, tostring(speedDelay), function(v)
+        local n = tonumber(v)
+        if not n or n < 0.05 then return end
+        speedDelay = n
+        env.setconfig("speeddelay", n)
+    end)
+
+    elements:Toggle("Auto Upgrade Speed", section, setdata.speed, function(v)
+        env.FBSpeed = v
+        env.setconfig("speed", v)
+        if not v then return end
+
+        task.spawn(function()
+            local warned = false
+
+            while env.FBSpeed do
+                local ev = event("PurchaseSpeed")
+
+                if ev then
+                    warned = false
+                    -- the server ignores it when there is not enough money
+                    pcall(function() ev:FireServer(speedAmount) end)
+                elseif not warned then
+                    warn("[BrainrotPolice] BrainrotStorage.Events.PurchaseSpeed not found")
+                    warned = true
+                end
+
+                task.wait(speedDelay)
             end
         end)
     end)
