@@ -227,17 +227,25 @@ return function(section, data)
         return true
     end
 
-    -- a spot HOP_OFFSET studs beside the block instead of on top of it
+    -- HOP_OFFSET studs to the left of the block instead of on top of it.
+    -- The block's own orientation points the wrong way, so the direction is
+    -- taken from the player and flattened on Y.
     local function besidePart(part)
-        local dir = part.CFrame.LookVector
-        dir = Vector3.new(dir.X, 0, dir.Z)
+        local root = getRoot()
+        local dir
 
-        if dir.Magnitude < 0.05 then
-            dir = Vector3.new(0, 0, 1)
+        if root then
+            dir = root.CFrame.RightVector
+            dir = Vector3.new(dir.X, 0, dir.Z)
+        end
+
+        if not dir or dir.Magnitude < 0.05 then
+            dir = Vector3.new(1, 0, 0)
         else
             dir = dir.Unit
         end
 
+        -- minus right is left
         return part.Position - dir * HOP_OFFSET
     end
 
