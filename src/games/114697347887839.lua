@@ -84,7 +84,6 @@ return function(section, data)
     -- control how the script hops closer stage by stage until the wanted
     -- one has loaded.
     local STAGE_STEP = 1      -- hop over every stage (1, 2, 3, ...)
-    local HOP_OFFSET = 10     -- how many studs next to the win block to stop
     local HOP_WAIT = 0.35     -- pause after a hop so the next chunk can load
     local HOP_TIMEOUT = 5     -- max seconds to wait for one stage to appear
 
@@ -182,22 +181,23 @@ return function(section, data)
         return true
     end
 
-    -- a spot HOP_OFFSET studs beside the block instead of on top of it,
-    -- so passing by does not trigger the win
-    local function besidePart(part)
-        local dir = part.CFrame.LookVector
-        dir = Vector3.new(dir.X, 0, dir.Z)
+    -- waits until workspace.Map.World<n>.Stages.Stage<n> exists
+    local function waitForFolder(n)
+        local t = os.clock()
 
-        if dir.Magnitude < 0.05 then
-            dir = Vector3.new(0, 0, 1)
-        else
-            dir = dir.Unit
+        while os.clock() - t < HOP_TIMEOUT do
+            if not env.MEWin then return nil end
+
+            local stage = stageFolder(n)
+            if stage then return stage end
+
+            task.wait(0.1)
         end
 
-        return part.Position - dir * HOP_OFFSET
+        return nil
     end
 
-    -- waits until a stage has streamed in, hopping is what makes it load
+    -- waits until a stage win pad has streamed in
     local function waitForStage(n)
         local t = os.clock()
 
@@ -223,24 +223,52 @@ return function(section, data)
         local fn = list and list[n]
         if not fn then return nil end
 
-        local stage = stageFolder(n)
+        local stage = waitForFolder(n)
         if not stage then return nil end
 
-        local ok, inst = pcall(fn, stage)
-        if not ok then return nil end
+        -- the children stream in one by one, give them a moment
+        local t = os.clock()
 
-        return posOf(inst)
+        while os.clock() - t < HOP_TIMEOUT do
+            if not env.MEWin then return nil end
+
+            local ok, inst = pcall(fn, stage)
+            local pos = ok and posOf(inst) or nil
+            if pos then return pos end
+
+            task.wait(0.1)
+        end
+
+        return nil
     end
 
-    -- hops 10 studs next to stage 1, 2, 3 ... so the map keeps streaming,
-    -- then teleports onto the wanted win block. Stages listed in WAYPOINTS
-    -- get an extra stop in between, they cannot be reached directly.
-    local function walkStages(target)
-        local needsWaypoint = WAYPOINTS[worldChoice] and WAYPOINTS[worldChoice][target]
+    -- walks into one stage: waypoint first if it has one, then the win pad
+    local function hopTo(n)
+        local wp = waypointPos(n)
 
-        -- the straight teleport is always tried first, the hop routine only
-        -- runs while the wanted stage has not streamed in yet. Stages with a
-        -- waypoint never take this shortcut, they have to be walked into.
+        if wp then
+            teleportTo(wp)
+            task.wait(HOP_WAIT)
+        end
+
+        local part, err = waitForStage(n)
+        if not part then return false, err end
+
+        -- land on the pad itself, that is what makes the next chunk stream
+        teleportTo(part.Position)
+        task.wait(HOP_WAIT)
+
+        return true
+    end
+
+    -- steps through stage 1, 2, 3 ... so the map keeps streaming in, then
+    -- finishes on the wanted win block
+    local function walkStages(target)
+        local list = WAYPOINTS[worldChoice]
+        local needsWaypoint = list and list[target]
+
+        -- straight teleport whenever the target is already loaded and does
+        -- not need to be walked into
         if not needsWaypoint then
             local direct = winPartFor(target)
             if direct then
@@ -249,53 +277,24 @@ return function(section, data)
             end
         end
 
-        for n = STAGE_STEP, target - 1, STAGE_STEP do
-            local hasWp = WAYPOINTS[worldChoice] and WAYPOINTS[worldChoice][n]
+        local lastErr
 
-            -- every hop may stream in the rest, so re-check the goal first
-            if not needsWaypoint and not hasWp then
-                local direct = winPartFor(target)
-                if direct then
-                    teleportTo(direct.Position)
-                    return true
-                end
-            end
-
-            local part = waitForStage(n)
-
-            -- a missing block is skipped, the next one may still load
-            if part then
-                if hasWp then
-                    -- go through the waypoint, then take the win pad itself
-                    local wp = waypointPos(n)
-                    if wp then
-                        teleportTo(wp)
-                        task.wait(HOP_WAIT)
-                    end
-
-                    teleportTo(part.Position)
-                else
-                    teleportTo(besidePart(part))
-                end
-
-                task.wait(HOP_WAIT)
-            end
-
+        for n = STAGE_STEP, target, STAGE_STEP do
             if not env.MEWin then return false, "cancelled" end
+
+            local ok, err = hopTo(n)
+
+            if not ok then
+                lastErr = err
+
+                if n == target then
+                    return false, err
+                end
+                -- a stage in between is skipped, the next one may still load
+            end
         end
 
-        -- the target stage itself may also need its waypoint first
-        local wp = waypointPos(target)
-        if wp then
-            teleportTo(wp)
-            task.wait(HOP_WAIT)
-        end
-
-        local part, err = waitForStage(target)
-        if not part then return false, err end
-
-        teleportTo(part.Position)
-        return true
+        return true, lastErr
     end
 
     elements:Dropdown("World", section, WORLD_OPTIONS, worldChoice, function(v)
@@ -332,8 +331,8 @@ return function(section, data)
                     -- do not fling the corpse around between respawns
                     task.wait(0.5)
                 else
-                    -- stages stream in one after another, so hop 10 studs
-                    -- next to Stage 1, 2, 3 ... until the wanted one exists
+                    -- stages stream in one after another, so step through
+                    -- Stage 1, 2, 3 ... until the wanted one exists
                     local ok, err = walkStages(stageNumber)
 
                     if not ok then
