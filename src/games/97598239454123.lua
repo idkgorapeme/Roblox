@@ -211,10 +211,10 @@ return function(section, data)
                 env.setconfig("fruits", tostring(v))
             end)
         else
-            elements:MultiDropdown("Fruits", section, list, allowedFruits, function(picked)
+            elements:Dropdown("Fruits", section, list, allowedFruits, function(picked)
                 allowedFruits = picked
                 env.setconfig("fruits", table.concat(picked, ","))
-            end)
+            end, true)
         end
     end
 
@@ -354,10 +354,10 @@ return function(section, data)
                 env.setconfig("seeds", tostring(v))
             end)
         else
-            elements:MultiDropdown("Seeds", section, list, allowedSeeds, function(picked)
+            elements:Dropdown("Seeds", section, list, allowedSeeds, function(picked)
                 allowedSeeds = picked
                 env.setconfig("seeds", table.concat(picked, ","))
-            end)
+            end, true)
         end
     end
 
@@ -487,10 +487,10 @@ return function(section, data)
                 env.setconfig("petnames", tostring(v))
             end)
         else
-            elements:MultiDropdown("Pets", section, list, allowedPets, function(picked)
+            elements:Dropdown("Pets", section, list, allowedPets, function(picked)
                 allowedPets = picked
                 env.setconfig("petnames", table.concat(picked, ","))
-            end)
+            end, true)
         end
     end
 
