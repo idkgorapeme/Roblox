@@ -385,22 +385,14 @@ return function(section, data)
                                 end
 
                                 -- Noclip keeps CanCollide off, so Touched may
-                                -- never fire. Treat entering the hitbox as the
-                                -- completion instead, measured against the
-                                -- block's real size rather than a fixed radius.
-                                if r then
-                                    local half = part.Size / 2
-                                    local rel = part.CFrame:PointToObjectSpace(r.Position)
-
-                                    if math.abs(rel.X) <= half.X + 2
-                                        and math.abs(rel.Y) <= half.Y + 4
-                                        and math.abs(rel.Z) <= half.Z + 2 then
-                                        touched = true
-                                        break
-                                    end
+                                -- never fire. Count it as done once we are
+                                -- within 3 studs of the block.
+                                if r and (r.Position - part.Position).Magnitude <= 3 then
+                                    touched = true
+                                    break
                                 end
 
-                                if glideStep(inside, 1) then
+                                if glideStep(inside, 3) then
                                     -- reached the centre without a touch event
                                     break
                                 end
