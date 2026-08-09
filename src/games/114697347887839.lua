@@ -84,8 +84,11 @@ return function(section, data)
     -- control how the script hops closer stage by stage until the wanted
     -- one has loaded.
     local STAGE_STEP = 1      -- hop over every stage (1, 2, 3, ...)
-    local HOP_WAIT = 0.35     -- pause after a hop so the next chunk can load
-    local HOP_TIMEOUT = 5     -- max seconds to wait for one stage to appear
+    local HOP_WAIT = 0.25     -- pause after a hop so the next chunk can load
+    local HOP_TIMEOUT = 6     -- max seconds to wait for one stage to appear
+    local TP_HOLD = 0.2       -- seconds to keep re-applying a teleport
+    local PAD_HOLD = 0.3      -- minimum time to sit on a win pad
+    local PAD_TIMEOUT = 2     -- give up waiting for the win to register
 
     -- Some stages cannot be reached by jumping straight to the win pad,
     -- the chunk in between has to be touched first. These return the
@@ -157,17 +160,19 @@ return function(section, data)
         return part and part.Position
     end
 
-    -- Moves the whole character, not just the root part. A single CFrame
-    -- write is easy for the game to undo, so it is applied over a few
-    -- frames and the velocity is cleared each time.
-    local function teleportTo(pos)
-        local char = getChar()
-        local root = getRoot()
-        if not char or not root then return false end
-
+    -- Holds the character at a position for a while. A single CFrame write
+    -- is easy for the game to undo, and a touch only registers if we stay
+    -- put for a few frames, so the position is re-applied every frame and
+    -- the velocity is wiped so gravity cannot drag us off again.
+    local function holdAt(pos, duration)
         local target = CFrame.new(pos)
+        local t = os.clock()
 
-        for _ = 1, 3 do
+        repeat
+            local char = getChar()
+            local root = getRoot()
+            if not char or not root then return false end
+
             pcall(function()
                 -- PivotTo moves every welded part with it
                 char:PivotTo(target)
@@ -176,8 +181,48 @@ return function(section, data)
             end)
 
             task.wait()
+        until os.clock() - t >= duration
+
+        return true
+    end
+
+    local function teleportTo(pos)
+        return holdAt(pos, TP_HOLD)
+    end
+
+    -- Sits on a win pad until the win registers. The server answers a win by
+    -- moving the character to the next stage, so a big position jump is the
+    -- signal that it worked and we can stop pushing.
+    local function touchPad(part)
+        local root = getRoot()
+        if not root then return false end
+
+        local pos = part.Position
+        local target = CFrame.new(pos)
+        local t = os.clock()
+
+        while os.clock() - t < PAD_TIMEOUT do
+            if not env.MEWin then return false end
+
+            local char = getChar()
+            root = getRoot()
+            if not char or not root then return false end
+
+            -- the server pulled us somewhere else, the win went through
+            if os.clock() - t > PAD_HOLD and (root.Position - pos).Magnitude > 25 then
+                return true
+            end
+
+            pcall(function()
+                char:PivotTo(target)
+                root.AssemblyLinearVelocity = Vector3.zero
+                root.AssemblyAngularVelocity = Vector3.zero
+            end)
+
+            task.wait()
         end
 
+        -- no reaction, treat it as done anyway so the chain keeps going
         return true
     end
 
@@ -254,8 +299,9 @@ return function(section, data)
         local part, err = waitForStage(n)
         if not part then return false, err end
 
-        -- land on the pad itself, that is what makes the next chunk stream
-        teleportTo(part.Position)
+        -- land on the pad and stay there until the win registers, that is
+        -- what unlocks and streams in the next stage
+        touchPad(part)
         task.wait(HOP_WAIT)
 
         return true
@@ -272,7 +318,7 @@ return function(section, data)
         if not needsWaypoint then
             local direct = winPartFor(target)
             if direct then
-                teleportTo(direct.Position)
+                touchPad(direct)
                 return true
             end
         end
