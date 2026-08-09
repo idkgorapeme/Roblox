@@ -326,10 +326,11 @@ return function(section, data)
                         -- block the approach
                         startNoclip()
 
-                        -- always 5 studs above the win part
-                        local target = part.Position + Vector3.new(0, 5, 0)
+                        -- stage 1: approach point, 15 studs to the left of
+                        -- the win block. left is -X in world space.
+                        local approach = part.Position + Vector3.new(-15, 0, 0)
 
-                        while env.MPWin and not glideStep(target, 4) do
+                        while env.MPWin and not glideStep(approach, 3) do
                             local h = plr.Character
                                 and plr.Character:FindFirstChildOfClass("Humanoid")
                             if not (h and h.Health > 0) then break end
@@ -341,8 +342,26 @@ return function(section, data)
 
                         if not env.MPWin then break end
 
-                        -- arrived: cut the flight and hand control back, then
-                        -- pause before the next run
+                        -- stage 2: fly INTO the win block itself, noclip lets
+                        -- us sit inside it so the touch registers
+                        if part.Parent then
+                            local inside = part.Position
+
+                            while env.MPWin and not glideStep(inside, 1) do
+                                local h = plr.Character
+                                    and plr.Character:FindFirstChildOfClass("Humanoid")
+                                if not (h and h.Health > 0) then break end
+
+                                if not part.Parent then break end
+
+                                runservice.Heartbeat:Wait()
+                            end
+                        end
+
+                        if not env.MPWin then break end
+
+                        -- cut the flight and collision so we simply drop out
+                        -- of the block, then pause before the next run
                         stopFlight()
                         stopNoclip()
 
