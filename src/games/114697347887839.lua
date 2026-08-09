@@ -278,46 +278,42 @@ return function(section, data)
         return out.Unit
     end
 
-    -- The block's forward direction along the course. Win pads are often
-    -- rotated so that Look points up or sideways, so the most horizontal
-    -- axis of the block is used instead of assuming LookVector.
-    local function facingOf(part)
-        local cf = part.CFrame
+    -- Which way the course runs at this stage, taken from where the previous
+    -- win pad sits. Part orientations are unreliable, but the line from one
+    -- pad to the next always points along the course.
+    local function courseDir(n)
+        local here = winPartFor(n)
+        if not here then return nil end
 
-        -- a pad is a flat slab, its thinnest axis is the one pointing up,
-        -- the two others lie in the ground plane
-        local candidates = {
-            { v = cf.LookVector, size = part.Size.Z },
-            { v = cf.RightVector, size = part.Size.X },
-            { v = cf.UpVector, size = part.Size.Y },
-        }
+        local prev = n > 1 and winPartFor(n - 1) or nil
 
-        local best, bestFlat = nil, nil
-
-        for _, c in ipairs(candidates) do
-            local f = flat(c.v)
-
-            -- prefer the axis that is most horizontal, ties go to the longer
-            -- side of the block so we offset along the pad, not through it
-            if f then
-                local horiz = math.abs(c.v.Y)
-                if not best or horiz < best.horiz then
-                    best = { horiz = horiz, size = c.size }
-                    bestFlat = f
-                end
-            end
+        if prev then
+            local d = flat(here.Position - prev.Position)
+            if d then return d end
         end
 
-        return bestFlat
+        local nextPad = winPartFor(n + 1)
+        if nextPad then
+            local d = flat(nextPad.Position - here.Position)
+            if d then return d end
+        end
+
+        return nil
     end
 
-    -- A spot clear of the block, HOP_OFFSET studs to its LEFT. The side is
-    -- taken from the block's own orientation, never from the camera or the
-    -- character facing, so it is always the same side and never behind.
-    local function besidePart(part)
-        local fwd = facingOf(part) or Vector3.new(0, 0, -1)
+    -- A spot clear of the block, HOP_OFFSET studs to its LEFT as seen when
+    -- running the course. Sideways only, never in front and never behind.
+    local function besidePart(part, n)
+        local fwd = n and courseDir(n) or nil
 
-        -- left of the facing direction, on the ground plane
+        -- no neighbour pad loaded, fall back to the block's flattest axis
+        if not fwd then
+            fwd = flat(part.CFrame.LookVector)
+                or flat(part.CFrame.RightVector)
+                or Vector3.new(0, 0, -1)
+        end
+
+        -- left of the running direction, on the ground plane
         local left = Vector3.yAxis:Cross(fwd)
 
         if left.Magnitude < 0.05 then
@@ -327,7 +323,12 @@ return function(section, data)
         end
 
         local dist = extentAlong(part, left) + HOP_OFFSET
-        return part.Position + left * dist
+        local pos = part.Position + left * dist
+
+        -- keep the same distance along the course as the pad, so a wrong
+        -- guess can never end up in front of or behind it
+        local along = (pos - part.Position):Dot(fwd)
+        return pos - fwd * along
     end
 
     -- waits until workspace.Map.World<n>.Stages.Stage<n> exists
@@ -454,7 +455,7 @@ return function(section, data)
             -- stay on the pad until the win registers
             touchPad(part)
         else
-            teleportTo(besidePart(part))
+            teleportTo(besidePart(part, n))
         end
 
         task.wait(HOP_WAIT)
