@@ -5,13 +5,20 @@ return function(section, data)
     local env = getgenv()
 
     local players = game:GetService("Players")
+    local replicatedstorage = game:GetService("ReplicatedStorage")
     local plr = players.LocalPlayer
 
     env.BSFarm = false
+    env.BSStorage = false
+    env.BSDamage = false
+    env.BSRebirth = false
 
     local setdata = data[tostring(game.PlaceId)] or {}
     setdata.farm = setdata.farm or false
     setdata.minmoney = setdata.minmoney or 500000
+    setdata.storage = setdata.storage or false
+    setdata.damage = setdata.damage or false
+    setdata.rebirth = setdata.rebirth or false
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
@@ -21,6 +28,10 @@ return function(section, data)
     -- player camping on one cannot stall the whole loop
     local SKIP_TIME = 20
     local GRAB_TIME = 1.5
+
+    -- how many levels are bought per call and how often
+    local UPGRADE_AMOUNT = 10
+    local UPGRADE_DELAY = 0.5
 
     local minMoney = tonumber(setdata.minmoney) or 500000
 
@@ -35,6 +46,12 @@ return function(section, data)
         local char = getChar()
         local hum = char and char:FindFirstChildOfClass("Humanoid")
         return hum ~= nil and hum.Health > 0
+    end
+
+    -- ReplicatedStorage.Remotes.<name>
+    local function remote(name)
+        local folder = replicatedstorage:FindFirstChild("Remotes")
+        return folder and folder:FindFirstChild(name) or nil
     end
 
     local function pivotOf(inst)
@@ -368,6 +385,76 @@ return function(section, data)
                         task.wait(FARM_DELAY)
                     end
                 end
+            end
+        end)
+    end)
+
+    ----------------------------------------------------------------
+    -- upgrades
+    ----------------------------------------------------------------
+
+    -- BuyUpgradeEvent:FireServer(<stat>, <amount>)
+    local function upgradeLoop(flag, stat)
+        task.spawn(function()
+            local warned = false
+
+            while env[flag] do
+                local ev = remote("BuyUpgradeEvent")
+
+                if ev then
+                    warned = false
+                    -- the server ignores it when there is not enough cash
+                    pcall(function() ev:FireServer(stat, UPGRADE_AMOUNT) end)
+                elseif not warned then
+                    warn("[BrainrotPolice] Remotes.BuyUpgradeEvent not found")
+                    warned = true
+                end
+
+                task.wait(UPGRADE_DELAY)
+            end
+        end)
+    end
+
+    elements:Toggle("Auto Storage", section, setdata.storage, function(v)
+        env.BSStorage = v
+        env.setconfig("storage", v)
+        if not v then return end
+
+        upgradeLoop("BSStorage", "Capacity")
+    end)
+
+    elements:Toggle("Auto Damage", section, setdata.damage, function(v)
+        env.BSDamage = v
+        env.setconfig("damage", v)
+        if not v then return end
+
+        upgradeLoop("BSDamage", "Damage")
+    end)
+
+    ----------------------------------------------------------------
+    -- auto rebirth
+    ----------------------------------------------------------------
+
+    elements:Toggle("Auto Rebirth", section, setdata.rebirth, function(v)
+        env.BSRebirth = v
+        env.setconfig("rebirth", v)
+        if not v then return end
+
+        task.spawn(function()
+            local warned = false
+
+            while env.BSRebirth do
+                local ev = remote("RebirthEvent")
+
+                if ev then
+                    warned = false
+                    pcall(function() ev:FireServer() end)
+                elseif not warned then
+                    warn("[BrainrotPolice] Remotes.RebirthEvent not found")
+                    warned = true
+                end
+
+                task.wait(1)
             end
         end)
     end)
