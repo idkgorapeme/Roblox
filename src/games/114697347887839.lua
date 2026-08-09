@@ -10,7 +10,6 @@ return function(section, data)
 
     env.MERebirth = false
     env.MEWin = false
-    env.MEWinTest = false
 
     local setdata = data[tostring(game.PlaceId)] or {}
     setdata.rebirth = setdata.rebirth or false
@@ -112,10 +111,6 @@ return function(section, data)
         return nil, "NormalWin has no BasePart inside it"
     end
 
-    local function winPart()
-        return winPartFor(stageNumber)
-    end
-
     -- Moves the whole character, not just the root part. A single CFrame
     -- write is easy for the game to undo, so it is applied over a few
     -- frames and the velocity is cleared each time.
@@ -160,7 +155,7 @@ return function(section, data)
         local t = os.clock()
 
         while os.clock() - t < HOP_TIMEOUT do
-            if not env.MEWin and not env.MEWinTest then return nil, "cancelled" end
+            if not env.MEWin then return nil, "cancelled" end
 
             local part, err = winPartFor(n)
             if part then return part end
@@ -177,8 +172,9 @@ return function(section, data)
 
     -- hops 10 studs next to stage 1, 2, 3 ... so the map keeps streaming,
     -- then teleports onto the wanted win block
-    local function walkStages(target, verbose)
-        -- already streamed in, no need to hop at all
+    local function walkStages(target)
+        -- the straight teleport is always tried first, the hop routine
+        -- only runs while the wanted stage has not streamed in yet
         local direct = winPartFor(target)
         if direct then
             teleportTo(direct.Position)
@@ -186,23 +182,22 @@ return function(section, data)
         end
 
         for n = STAGE_STEP, target - 1, STAGE_STEP do
-            local part, err = waitForStage(n)
+            -- every hop may stream in the rest, so re-check the goal first
+            direct = winPartFor(target)
+            if direct then
+                teleportTo(direct.Position)
+                return true
+            end
 
-            if not part then
-                if verbose then
-                    warn("[BrainrotPolice] hop stop at Stage" .. n .. ": " .. tostring(err))
-                end
-                -- the block is not there, try the next one anyway
-            else
-                if verbose then
-                    print("[BrainrotPolice] hop to Stage" .. n)
-                end
+            local part = waitForStage(n)
 
+            -- a missing block is skipped, the next one may still load
+            if part then
                 teleportTo(besidePart(part))
                 task.wait(HOP_WAIT)
             end
 
-            if not env.MEWin and not env.MEWinTest then return false, "cancelled" end
+            if not env.MEWin then return false, "cancelled" end
         end
 
         local part, err = waitForStage(target)
@@ -211,52 +206,6 @@ return function(section, data)
         teleportTo(part.Position)
         return true
     end
-
-    elements:Button("Test Win TP", section, function()
-        if env.MEWinTest then return end
-        env.MEWinTest = true
-
-        task.spawn(function()
-            local part, err = winPart()
-
-            if not part then
-                print("[BrainrotPolice] Stage" .. stageNumber
-                    .. " not loaded yet, hopping closer: " .. tostring(err))
-            end
-
-            local root = getRoot()
-            print("[BrainrotPolice] before: " .. (root and tostring(root.Position) or "no root"))
-
-            local ok, err2 = walkStages(stageNumber, true)
-
-            if not ok then
-                warn("[BrainrotPolice] " .. tostring(err2 or "unknown"))
-
-                -- show what actually exists so the path can be corrected
-                local map = workspace:FindFirstChild("Map")
-                if map then
-                    local names = {}
-                    for _, c in pairs(map:GetChildren()) do
-                        names[#names + 1] = c.Name
-                    end
-                    print("[BrainrotPolice] workspace.Map children: "
-                        .. table.concat(names, ", "))
-                end
-            else
-                local final = winPart()
-                if final then
-                    print("[BrainrotPolice] target: " .. final:GetFullName())
-                    print("[BrainrotPolice] position: " .. tostring(final.Position))
-                end
-            end
-
-            task.wait(0.3)
-            root = getRoot()
-            print("[BrainrotPolice] after:  " .. (root and tostring(root.Position) or "no root"))
-
-            env.MEWinTest = false
-        end)
-    end)
 
     elements:Dropdown("World", section, WORLD_OPTIONS, worldChoice, function(v)
         worldChoice = v
@@ -287,7 +236,7 @@ return function(section, data)
                 else
                     -- stages stream in one after another, so hop 10 studs
                     -- next to Stage 1, 2, 3 ... until the wanted one exists
-                    local ok, err = walkStages(stageNumber, false)
+                    local ok, err = walkStages(stageNumber)
 
                     if not ok then
                         if err ~= "cancelled" and not warned then
