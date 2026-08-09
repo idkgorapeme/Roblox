@@ -15,12 +15,19 @@ return function(section, data)
     local setdata = data[tostring(game.PlaceId)] or {}
     setdata.rebirth = setdata.rebirth or false
     setdata.win = setdata.win or false
+    setdata.world = setdata.world or "World 1"
+    setdata.stage = setdata.stage or 1
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
     -- fixed, matching the other escape modules
     local FLY_SPEED = 200
-    local WIN_POS = Vector3.new(-2174, 123, -204)
+
+    -- workspace.Map.World<n>.Stages.Stage<n>.NormalWin
+    local WORLD_OPTIONS = { "World 1", "World 2", "World 3", "World 4", "World 5" }
+
+    local worldChoice = tostring(setdata.world or "World 1")
+    local stageNumber = math.clamp(tonumber(setdata.stage) or 1, 1, 10)
 
     local function getChar() return plr.Character end
 
@@ -193,6 +200,45 @@ return function(section, data)
     -- auto win
     ----------------------------------------------------------------
 
+    -- resolves workspace.Map.World<n>.Stages.Stage<n>.NormalWin
+    local function winPart()
+        local map = workspace:FindFirstChild("Map")
+        if not map then return nil, "workspace.Map missing" end
+
+        -- "World 3" -> "World3"
+        local worldName = worldChoice:gsub("%s", "")
+        local world = map:FindFirstChild(worldName)
+        if not world then return nil, "Map." .. worldName .. " missing" end
+
+        local stages = world:FindFirstChild("Stages")
+        if not stages then return nil, worldName .. ".Stages missing" end
+
+        local stage = stages:FindFirstChild("Stage" .. tostring(stageNumber))
+        if not stage then
+            return nil, worldName .. ".Stages.Stage" .. stageNumber .. " missing"
+        end
+
+        local win = stage:FindFirstChild("NormalWin")
+        if not win then
+            return nil, "Stage" .. stageNumber .. ".NormalWin missing"
+        end
+
+        if win:IsA("BasePart") then return win end
+        return win:FindFirstChildWhichIsA("BasePart", true), nil
+    end
+
+    elements:Dropdown("World", section, WORLD_OPTIONS, worldChoice, function(v)
+        worldChoice = v
+        env.setconfig("world", v)
+    end)
+
+    elements:Textbox("Stage (1 - 10)", section, tostring(stageNumber), function(v)
+        local n = tonumber(v)
+        if not n then return end
+        stageNumber = math.clamp(math.floor(n), 1, 10)
+        env.setconfig("stage", stageNumber)
+    end)
+
     -- starts off every session, it moves the character
     elements:Toggle("Auto Win", section, false, function(v)
         env.MEWin = v
@@ -212,26 +258,39 @@ return function(section, data)
                 else
                     startNoclip()
 
-                    local startRoot = getRoot()
-                    local startPos = startRoot and startRoot.Position
-                    local elapsed = 0
+                    local part, err = winPart()
 
-                    while env.MEWin do
-                        if not alive() then break end
+                    if not part then
+                        warn("[BrainrotPolice] " .. tostring(err))
+                        stopFlight()
+                        stopNoclip()
+                        task.wait(1)
+                    else
+                        local target = part.Position
 
-                        local r = getRoot()
-                        if not r then break end
+                        local startRoot = getRoot()
+                        local startPos = startRoot and startRoot.Position
+                        local elapsed = 0
 
-                        -- the win teleported us away, that counts as done
-                        if startPos and (r.Position - startPos).Magnitude > 500
-                            and (r.Position - WIN_POS).Magnitude > 100 then
-                            break
+                        while env.MEWin do
+                            if not alive() then break end
+
+                            local r = getRoot()
+                            if not r then break end
+
+                            if not part.Parent then break end
+
+                            -- the win teleported us away, that counts as done
+                            if startPos and (r.Position - startPos).Magnitude > 500
+                                and (r.Position - target).Magnitude > 100 then
+                                break
+                            end
+
+                            if glideStep(target, 3) then break end
+
+                            elapsed = elapsed + runservice.Heartbeat:Wait()
+                            if elapsed > 30 then break end
                         end
-
-                        if glideStep(WIN_POS, 3) then break end
-
-                        elapsed = elapsed + runservice.Heartbeat:Wait()
-                        if elapsed > 30 then break end
                     end
 
                     if not env.MEWin then break end
