@@ -91,6 +91,25 @@ return function(section, data)
     local PAD_HOLD = 0.3      -- minimum time to sit on a win pad
     local PAD_TIMEOUT = 2     -- give up waiting for the win to register
 
+    -- Collects every child of a stage that can be stood on, with the known
+    -- starting index first, so the chain has something to hop along.
+    local function stageHops(stage, firstIndex)
+        local kids = stage:GetChildren()
+        local out = {}
+
+        local first = kids[firstIndex]
+        if first then out[1] = first end
+
+        for _, c in ipairs(kids) do
+            -- never hop onto the win pad itself, that would end the stage
+            if c ~= first and c.Name ~= "NormalWin" then
+                out[#out + 1] = c
+            end
+        end
+
+        return out
+    end
+
     -- Some stages cannot be reached by jumping straight to the win pad, the
     -- chunk in between has to be touched first. Each entry returns a LIST of
     -- instances that get hopped through one after another until the stage's
@@ -98,10 +117,10 @@ return function(section, data)
     local WAYPOINTS = {
         ["World 1"] = {
             [7] = function(stage)
-                return { stage:GetChildren()[8] }
+                return stageHops(stage, 8)
             end,
             [8] = function(stage)
-                return { stage:GetChildren()[17] }
+                return stageHops(stage, 17)
             end,
             [9] = function(stage)
                 -- the vines are spread over the whole stage, collect them all
@@ -113,15 +132,10 @@ return function(section, data)
                     end
                 end
 
-                -- fall back to the known path if the names ever change
-                if #out == 0 then
-                    local holder = stage:GetChildren()[10]
-                    local ramo = holder and holder:FindFirstChild("Ramo")
-                    local vine = ramo and ramo:FindFirstChild("Vine")
-                    if vine then out[1] = vine end
-                end
+                if #out > 0 then return out end
 
-                return out
+                -- fall back to the generic sweep if the names ever change
+                return stageHops(stage, 10)
             end,
         },
     }
@@ -351,10 +365,11 @@ return function(section, data)
         if not found then return nil end
         if #found == 1 then return found end
 
-        -- greedy nearest neighbour so we do not zigzag across the stage
-        local root = getRoot()
-        local from = root and root.Position or found[1]
-        local chain = {}
+        -- the first entry is the known entry point, keep it in front and
+        -- order the rest greedily so we do not zigzag across the stage
+        local chain = { found[1] }
+        local from = found[1]
+        table.remove(found, 1)
 
         while #found > 0 do
             local best, bestDist = 1, (found[1] - from).Magnitude
