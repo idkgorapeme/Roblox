@@ -54,6 +54,79 @@ function stuff:Dropdown(str, king, options, def, cb)
     return newBtn
 end
 
+-- A multi select list. The gui asset has no list element, so one toggle is
+-- created per option and the callback always receives the full table of
+-- everything that is currently ticked.
+function stuff:MultiDropdown(str, king, options, def, cb)
+    options = options or {}
+
+    local selected = {}
+    for _, v in ipairs(def or {}) do
+        selected[tostring(v)] = true
+    end
+
+    local header = elements.LabelElement:Clone()
+    header.Parent = king
+
+    local function chosen()
+        local out = {}
+
+        -- keep the order of the option list, not the hash order
+        for _, opt in ipairs(options) do
+            if selected[tostring(opt)] then
+                out[#out + 1] = opt
+            end
+        end
+
+        return out
+    end
+
+    local function render()
+        local picked = chosen()
+        header.Text = str .. " (" .. #picked .. "/" .. #options .. ")"
+    end
+
+    render()
+
+    for _, opt in ipairs(options) do
+        local name = tostring(opt)
+        local newTog = elements.ToggleElement:Clone()
+        newTog.TextLabel.Text = "  " .. name
+        newTog.Parent = king
+
+        local on = selected[name] == true
+
+        local function paint()
+            if on then
+                newTog.togglebg.BackgroundColor3 = Color3.fromRGB(59, 164, 57)
+                newTog.togglebg.leftrightlol.AnchorPoint = Vector2.new(1, 0.5)
+                newTog.togglebg.leftrightlol.Position = UDim2.new(1, 0, 0.5, 0)
+            else
+                newTog.togglebg.BackgroundColor3 = Color3.fromRGB(164, 58, 58)
+                newTog.togglebg.leftrightlol.AnchorPoint = Vector2.new(0, 0.5)
+                newTog.togglebg.leftrightlol.Position = UDim2.new(0, 0, 0.5, 0)
+            end
+        end
+
+        paint()
+
+        newTog.MouseButton1Click:Connect(function()
+            on = not on
+            selected[name] = on or nil
+
+            paint()
+            render()
+
+            if cb then cb(chosen()) end
+        end)
+    end
+
+    return {
+        Get = chosen,
+        Refresh = render,
+    }
+end
+
 function stuff:Toggle(str, king, def, cb)
     local newTog = elements.ToggleElement:Clone()
     newTog.TextLabel.Text = str

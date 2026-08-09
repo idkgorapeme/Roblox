@@ -130,8 +130,21 @@ return function(section, data)
     end
 
     ----------------------------------------------------------------
-    -- allow lists, stored as comma separated text
+    -- allow lists
     ----------------------------------------------------------------
+
+    -- sorted child names of a folder, used to fill the pick lists
+    local function namesIn(folder)
+        local out = {}
+        if not folder then return out end
+
+        for _, c in ipairs(folder:GetChildren()) do
+            out[#out + 1] = c.Name
+        end
+
+        table.sort(out)
+        return out
+    end
 
     local function parseList(text)
         local out = {}
@@ -182,45 +195,28 @@ return function(section, data)
     end
 
     ----------------------------------------------------------------
-    -- name dumps, the lists are far too long for a dropdown
-    ----------------------------------------------------------------
-
-    local function dumpNames(title, folder)
-        if not folder then
-            warn("[BrainrotPolice] " .. title .. " folder not found")
-            return
-        end
-
-        local names = {}
-        for _, c in ipairs(folder:GetChildren()) do
-            names[#names + 1] = c.Name
-        end
-
-        table.sort(names)
-
-        local text = table.concat(names, ", ")
-        print("[BrainrotPolice] " .. title .. " (" .. #names .. "): " .. text)
-
-        if setclipboard then
-            pcall(function() setclipboard(text) end)
-            print("[BrainrotPolice] copied to clipboard")
-        end
-    end
-
-    ----------------------------------------------------------------
     -- auto collect
     ----------------------------------------------------------------
 
     elements:Label("Auto Collect", section)
 
-    elements:Button("Copy Fruit Names", section, function()
-        dumpNames("Fruits", fruitsFolder())
-    end)
+    do
+        local list = namesIn(fruitsFolder())
 
-    elements:Textbox("Allowed Fruits (comma separated)", section, setdata.fruits, function(v)
-        allowedFruits = parseList(v)
-        env.setconfig("fruits", tostring(v))
-    end)
+        if #list == 0 then
+            elements:Label("Fruits list not loaded, use the textbox", section)
+
+            elements:Textbox("Allowed Fruits (comma separated)", section, setdata.fruits, function(v)
+                allowedFruits = parseList(v)
+                env.setconfig("fruits", tostring(v))
+            end)
+        else
+            elements:MultiDropdown("Fruits", section, list, allowedFruits, function(picked)
+                allowedFruits = picked
+                env.setconfig("fruits", table.concat(picked, ","))
+            end)
+        end
+    end
 
     elements:Toggle("Collect Mutated", section, setdata.mutated, function(v)
         allowMutated = v
@@ -347,14 +343,23 @@ return function(section, data)
 
     elements:Label("Auto Buy Seeds", section)
 
-    elements:Button("Copy Seed Names", section, function()
-        dumpNames("Seeds", seedShopItems())
-    end)
+    do
+        local list = namesIn(seedShopItems())
 
-    elements:Textbox("Allowed Seeds (comma separated)", section, setdata.seeds, function(v)
-        allowedSeeds = parseList(v)
-        env.setconfig("seeds", tostring(v))
-    end)
+        if #list == 0 then
+            elements:Label("Seed list not loaded, use the textbox", section)
+
+            elements:Textbox("Allowed Seeds (comma separated)", section, setdata.seeds, function(v)
+                allowedSeeds = parseList(v)
+                env.setconfig("seeds", tostring(v))
+            end)
+        else
+            elements:MultiDropdown("Seeds", section, list, allowedSeeds, function(picked)
+                allowedSeeds = picked
+                env.setconfig("seeds", table.concat(picked, ","))
+            end)
+        end
+    end
 
     elements:Toggle("Auto Buy", section, setdata.buy, function(v)
         env.GGBuy = v
@@ -471,14 +476,23 @@ return function(section, data)
 
     elements:Label("Auto Buy Pets", section)
 
-    elements:Button("Copy Pet Names", section, function()
-        dumpNames("Pets", petAssets())
-    end)
+    do
+        local list = namesIn(petAssets())
 
-    elements:Textbox("Allowed Pets (comma separated)", section, setdata.petnames, function(v)
-        allowedPets = parseList(v)
-        env.setconfig("petnames", tostring(v))
-    end)
+        if #list == 0 then
+            elements:Label("Pet list not loaded, use the textbox", section)
+
+            elements:Textbox("Allowed Pets (comma separated)", section, setdata.petnames, function(v)
+                allowedPets = parseList(v)
+                env.setconfig("petnames", tostring(v))
+            end)
+        else
+            elements:MultiDropdown("Pets", section, list, allowedPets, function(picked)
+                allowedPets = picked
+                env.setconfig("petnames", table.concat(picked, ","))
+            end)
+        end
+    end
 
     -- starts off every session, it walks the character across the map
     elements:Toggle("Auto Buy Pets", section, false, function(v)

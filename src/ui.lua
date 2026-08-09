@@ -101,11 +101,28 @@ local Sections = {
         Container = SectionContainers.settingsFrame
     },
 
-    Credits = {
+    -- the credits tab is repurposed as a tools tab, the dump belongs there
+    -- and not on the unsupported game screen
+    Tools = {
         TabBtn = TabList.CreditsTab,
         Container = SectionContainers.creditsFrame
     }
 }
+
+do
+    -- relabel the reused tab
+    local btn = TabList.CreditsTab
+
+    if btn:IsA("TextButton") and btn.Text ~= "" then
+        btn.Text = "Tools"
+    end
+
+    for _, d in pairs(btn:GetDescendants()) do
+        if d:IsA("TextLabel") or d:IsA("TextButton") then
+            d.Text = "Tools"
+        end
+    end
+end
 
 if ScriptsTabBtn and ScriptsContainer then
     Sections.Scripts = {
@@ -355,96 +372,6 @@ if not ok or #gamePath == 0 or gamePath == "404: Not Found" then
             CurSection = Sections.GamesList
         end)
 
-        -- no script exists for this place, so offer the dump tools instead.
-        -- these only ever show up on unsupported games.
-        elements:Label("Unsupported game. Dump it and send the output so it can be added.", Sections.Game.Container)
-
-        elements:Button("Dump Game Structure (copies)", Sections.Game.Container, function()
-            local out = {}
-            local function add(...)
-                local parts = {}
-                for _, v in ipairs({...}) do
-                    parts[#parts + 1] = tostring(v)
-                end
-                out[#out + 1] = table.concat(parts, " ")
-            end
-
-            add("PlaceId:", game.PlaceId)
-            add("JobId:", game.JobId)
-            add("Executor:", (getexec and getexec()) or "unknown")
-
-            add("")
-            add("======== workspace ========")
-            for _, child in pairs(workspace:GetChildren()) do
-                add(child.ClassName, "|", child.Name)
-            end
-
-            add("")
-            add("======== ReplicatedStorage ========")
-            for _, child in pairs(game:GetService("ReplicatedStorage"):GetChildren()) do
-                add(child.ClassName, "|", child.Name)
-            end
-
-            add("")
-            add("======== remotes ========")
-            local n = 0
-            for _, r in pairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
-                if r:IsA("RemoteEvent") or r:IsA("RemoteFunction") then
-                    n = n + 1
-                    if n <= 200 then
-                        add(r.ClassName, "|", r:GetFullName())
-                    end
-                end
-            end
-            add("total remotes:", n)
-
-            add("")
-            add("======== leaderstats ========")
-            local ls = players.LocalPlayer:FindFirstChild("leaderstats")
-            if ls then
-                for _, stat in pairs(ls:GetChildren()) do
-                    add(stat.Name, "=", tostring(stat.Value))
-                end
-            else
-                add("no leaderstats")
-            end
-
-            add("")
-            add("======== player attributes ========")
-            local attrs = players.LocalPlayer:GetAttributes()
-            if next(attrs) == nil then
-                add("none")
-            else
-                for k, v in pairs(attrs) do
-                    add(k, "=", tostring(v))
-                end
-            end
-
-            local text = table.concat(out, "\n")
-            print(text)
-
-            local path = "BrainrotPolice/dump_" .. tostring(game.PlaceId) .. ".txt"
-            local savedOk = pcall(function() writefile(path, text) end)
-            local copiedOk = pcall(function() setclipboard(text) end)
-
-            if copiedOk then
-                print("[BrainrotPolice] dump copied to clipboard (" .. #text .. " chars, PlaceId included)")
-            else
-                warn("[BrainrotPolice] setclipboard not available, use " .. path)
-            end
-
-            if savedOk then
-                print("[BrainrotPolice] dump also saved to " .. path)
-            end
-        end)
-
-        elements:Button("Copy PlaceId", Sections.Game.Container, function()
-            local okc = pcall(function()
-                setclipboard(tostring(game.PlaceId))
-            end)
-            print("[BrainrotPolice] PlaceId " .. tostring(game.PlaceId)
-                .. (okc and " copied" or " (clipboard unavailable)"))
-        end)
     end
 else
     local gameModule = loadstring(gamePath)()
@@ -457,11 +384,106 @@ for _, g in ipairs(gameList) do
     end)
 end
 
+----------------------------------------------------------------
+-- tools tab
+----------------------------------------------------------------
+
+elements:Label("Game Info", Sections.Tools.Container)
+
+elements:Button("Copy PlaceId", Sections.Tools.Container, function()
+    local okc = pcall(function()
+        setclipboard(tostring(game.PlaceId))
+    end)
+    print("[BrainrotPolice] PlaceId " .. tostring(game.PlaceId)
+        .. (okc and " copied" or " (clipboard unavailable)"))
+end)
+
+elements:Button("Dump Game Structure (copies)", Sections.Tools.Container, function()
+        local out = {}
+        local function add(...)
+            local parts = {}
+            for _, v in ipairs({...}) do
+                parts[#parts + 1] = tostring(v)
+            end
+            out[#out + 1] = table.concat(parts, " ")
+        end
+
+        add("PlaceId:", game.PlaceId)
+        add("JobId:", game.JobId)
+        add("Executor:", (getexec and getexec()) or "unknown")
+
+        add("")
+        add("======== workspace ========")
+        for _, child in pairs(workspace:GetChildren()) do
+            add(child.ClassName, "|", child.Name)
+        end
+
+        add("")
+        add("======== ReplicatedStorage ========")
+        for _, child in pairs(game:GetService("ReplicatedStorage"):GetChildren()) do
+            add(child.ClassName, "|", child.Name)
+        end
+
+        add("")
+        add("======== remotes ========")
+        local n = 0
+        for _, r in pairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
+            if r:IsA("RemoteEvent") or r:IsA("RemoteFunction") then
+                n = n + 1
+                if n <= 200 then
+                    add(r.ClassName, "|", r:GetFullName())
+                end
+            end
+        end
+        add("total remotes:", n)
+
+        add("")
+        add("======== leaderstats ========")
+        local ls = players.LocalPlayer:FindFirstChild("leaderstats")
+        if ls then
+            for _, stat in pairs(ls:GetChildren()) do
+                add(stat.Name, "=", tostring(stat.Value))
+            end
+        else
+            add("no leaderstats")
+        end
+
+        add("")
+        add("======== player attributes ========")
+        local attrs = players.LocalPlayer:GetAttributes()
+        if next(attrs) == nil then
+            add("none")
+        else
+            for k, v in pairs(attrs) do
+                add(k, "=", tostring(v))
+            end
+        end
+
+        local text = table.concat(out, "\n")
+        print(text)
+
+        local path = "BrainrotPolice/dump_" .. tostring(game.PlaceId) .. ".txt"
+        local savedOk = pcall(function() writefile(path, text) end)
+        local copiedOk = pcall(function() setclipboard(text) end)
+
+        if copiedOk then
+            print("[BrainrotPolice] dump copied to clipboard (" .. #text .. " chars, PlaceId included)")
+        else
+            warn("[BrainrotPolice] setclipboard not available, use " .. path)
+        end
+
+        if savedOk then
+            print("[BrainrotPolice] dump also saved to " .. path)
+        end
+end)
+
+elements:Label("Credits", Sections.Tools.Container)
+
 for sect, c in pairs(creditsList) do
-    elements:CredHead(Sections.Credits.Container, sect)
+    elements:CredHead(Sections.Tools.Container, sect)
 
     for _, person in ipairs(c) do
-        elements:CredPerson(Sections.Credits.Container, person)
+        elements:CredPerson(Sections.Tools.Container, person)
     end
 end
 
