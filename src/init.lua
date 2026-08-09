@@ -77,7 +77,7 @@ env.BrainrotPolice.globals = {
     "AutoWin", "KeyFarm", "KeyHighlight", "World2Help", "World2Destroy",
     "MacroPlaying", "MacroRecording",
     "BPFly", "BPInfJump", "BPNoclip", "BPAntiAFK", "AutoPrestige", "AutoClickAttack",
-    "DBCollect", "DBUpgrade", "DBRebirth", "SBPump", "SBUpgrade", "SBLaunch", "SBFuel", "MNLock", "MNMerge", "SSWin", "SSRebirth", "KEWin1", "KEWin2", "KEDestroy", "KECoins", "KEBuy", "KSWalk", "KSBuy", "KSWin", "KSDestroy", "SWSell", "SWRebirth", "SWCollect", "WMRebirth", "WMPrestige", "WMPlaytime", "BBTrajectory", "BBHighlight", "MMCoins", "MMCoinEsp", "BFFarm", "BFSpy", "JHJump", "JHRebirth", "MPTrain", "MPWin", "MPRebirth", "MPDumbbell", "MERebirth", "MEWin", "MMMyRole"
+    "DBCollect", "DBUpgrade", "DBRebirth", "SBPump", "SBUpgrade", "SBLaunch", "SBFuel", "MNLock", "MNMerge", "SSWin", "SSRebirth", "KEWin1", "KEWin2", "KEDestroy", "KECoins", "KEBuy", "KSWalk", "KSBuy", "KSWin", "KSDestroy", "SWSell", "SWRebirth", "SWCollect", "WMRebirth", "WMPrestige", "WMPlaytime", "BBTrajectory", "BBHighlight", "MMCoins", "MMCoinEsp", "BFFarm", "BFSpy", "JHJump", "JHRebirth", "MPTrain", "MPWin", "MPRebirth", "MPDumbbell", "MERebirth", "MEWin", "FBGuards", "FBFarm", "FBSell", "FBRebirth", "MMMyRole"
 }
 
 function env.BrainrotPolice.unload()
