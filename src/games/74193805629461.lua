@@ -10,18 +10,23 @@ return function(section, data)
 
     env.MGFarm = false
     env.MGSell = false
+    env.MGStrength = false
 
     local setdata = data[tostring(game.PlaceId)] or {}
     setdata.farm = setdata.farm or false
     setdata.stage = setdata.stage or 30
     setdata.minmoney = setdata.minmoney or 0
     setdata.sell = setdata.sell or false
+    setdata.strength = setdata.strength or false
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
     local FARM_DELAY = 0.2
     local GRAB_TIME = 1.5
     local SKIP_TIME = 20
+
+    -- the game has an anticheat, so the click loop stays at a human rate
+    local CLICK_DELAY = 0.1
 
     local stageNumber = math.max(1, math.floor(tonumber(setdata.stage) or 30))
     local minMoney = tonumber(setdata.minmoney) or 0
@@ -318,6 +323,34 @@ return function(section, data)
                 end
 
                 task.wait(1)
+            end
+        end)
+    end)
+
+    ----------------------------------------------------------------
+    -- auto strength
+    ----------------------------------------------------------------
+
+    elements:Toggle("Auto Strength", section, setdata.strength, function(v)
+        env.MGStrength = v
+        env.setconfig("strength", v)
+        if not v then return end
+
+        task.spawn(function()
+            local warned = false
+
+            while env.MGStrength do
+                local ev = serverRemote("Click")
+
+                if ev then
+                    warned = false
+                    pcall(function() ev:FireServer() end)
+                elseif not warned then
+                    warn("[BrainrotPolice] Remotes.Server.Click not found")
+                    warned = true
+                end
+
+                task.wait(CLICK_DELAY)
             end
         end)
     end)
