@@ -102,8 +102,8 @@ return function(section, data)
     local WORLD_FOLDER = {
         ["World 1"] = "Spawn World",
         ["World 2"] = "Future World",
-        ["World 3"] = "Heaven World",
-        ["World 4"] = "Hell World",
+        ["World 3"] = "Hell World",
+        ["World 4"] = "Heaven World",
     }
 
     local worldChoice = tostring(setdata.world or "World 1")
