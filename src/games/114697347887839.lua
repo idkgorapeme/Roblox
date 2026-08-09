@@ -229,7 +229,11 @@ return function(section, data)
             return nil, worldName .. ".Stages.Stage" .. n .. " not loaded yet"
         end
 
+        -- usually a direct child, but some stages park it deeper, e.g.
+        -- Stage9.FinalDestination.NormalWin
         local win = stage:FindFirstChild("NormalWin")
+            or stage:FindFirstChild("NormalWin", true)
+
         if not win then
             return nil, "Stage" .. n .. ".NormalWin missing"
         end
