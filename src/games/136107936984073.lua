@@ -326,7 +326,7 @@ return function(section, data)
                         -- block the approach
                         startNoclip()
 
-                        -- stage 1: approach point, 20 studs to the LEFT of
+                        -- stage 1: approach point, 80 studs to the LEFT of
                         -- the win block, using the block's own orientation
                         -- rather than a world axis. RightVector points right,
                         -- so negating it gives left no matter how the block
@@ -341,7 +341,7 @@ return function(section, data)
                             left = left.Unit
                         end
 
-                        local approach = part.Position + left * 20
+                        local approach = part.Position + left * 80
 
                         while env.MPWin and not glideStep(approach, 3) do
                             local h = plr.Character
