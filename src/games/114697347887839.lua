@@ -185,6 +185,25 @@ return function(section, data)
 
                 return stageHops(stage, 19)
             end,
+            -- after win 8 the way on runs over the jump devices
+            [9] = function(stage)
+                local out = {}
+
+                -- the known entry point comes first
+                local first = stage:GetChildren()[64]
+                if first then out[1] = first end
+
+                -- then every other jump device on the stage
+                for _, d in pairs(stage:GetDescendants()) do
+                    if d.Name == "JumpDevice" and d ~= first then
+                        out[#out + 1] = d
+                    end
+                end
+
+                if #out > 0 then return out end
+
+                return stageHops(stage, 64)
+            end,
         },
     }
 
