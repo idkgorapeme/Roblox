@@ -116,6 +116,10 @@ return function(section, data)
     -- win block has streamed in.
     local WAYPOINTS = {
         ["World 1"] = {
+            [6] = function(stage)
+                -- no known entry point, just sweep the whole stage
+                return stageHops(stage, 1)
+            end,
             [7] = function(stage)
                 return stageHops(stage, 8)
             end,
