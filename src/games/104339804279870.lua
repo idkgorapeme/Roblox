@@ -11,7 +11,6 @@ return function(section, data)
 
     local setdata = data[tostring(game.PlaceId)] or {}
     setdata.farm = setdata.farm or false
-    setdata.base = setdata.base or "Base20"
     setdata.minmoney = setdata.minmoney or 0
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
@@ -19,8 +18,8 @@ return function(section, data)
     -- middle of the area, used while nothing is worth grabbing
     local AREA_POS = Vector3.new(-13, 6, 879)
     local FARM_DELAY = 0.2
+    local BASE = "Base20"
 
-    local baseName = tostring(setdata.base or "Base20")
     local minMoney = tonumber(setdata.minmoney) or 0
 
     local function getChar() return plr.Character end
@@ -50,10 +49,10 @@ return function(section, data)
     -- auto farm
     ----------------------------------------------------------------
 
-    -- workspace.Bases.<base>.Slots
+    -- workspace.Bases.Base20.Slots
     local function slotsFolder()
         local bases = workspace:FindFirstChild("Bases")
-        local base = bases and bases:FindFirstChild(baseName)
+        local base = bases and bases:FindFirstChild(BASE)
         return base and base:FindFirstChild("Slots") or nil
     end
 
@@ -179,17 +178,6 @@ return function(section, data)
         local direct = workspace:FindFirstChild("Plot_" .. plr.Name)
         return direct and pivotOf(direct) or nil
     end
-
-    elements:Textbox("Base (default Base20)", section, baseName, function(v)
-        v = tostring(v):gsub("^%s+", ""):gsub("%s+$", "")
-        if v == "" then return end
-
-        -- accept both "20" and "Base20"
-        if v:match("^%d+$") then v = "Base" .. v end
-
-        baseName = v
-        env.setconfig("base", v)
-    end)
 
     -- accepts 5000, 5k, 2.5m and so on
     elements:Textbox("Min Earnings (0 = any)", section, tostring(minMoney), function(v)
