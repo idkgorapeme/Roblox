@@ -326,9 +326,9 @@ return function(section, data)
                         -- block the approach
                         startNoclip()
 
-                        -- stage 1: approach point, 15 studs to the left of
+                        -- stage 1: approach point, 50 studs to the left of
                         -- the win block. left is -X in world space.
-                        local approach = part.Position + Vector3.new(-15, 0, 0)
+                        local approach = part.Position + Vector3.new(-50, 0, 0)
 
                         while env.MPWin and not glideStep(approach, 3) do
                             local h = plr.Character
