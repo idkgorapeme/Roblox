@@ -269,26 +269,35 @@ return function(section, data)
         return dist
     end
 
-    -- Flies to a spot and stays there for a while so a touch registers.
-    -- Returns false when it could not get there in time.
-    local function holdAt(pos, duration)
-        local root = getRoot()
-        if not root then return false end
+    -- Flies over to a spot. `moving` is called every frame so the target can
+    -- follow a brainrot that is being carried away. Returns true on arrival.
+    local function flyTo(pos, moving)
+        if not getRoot() then return false end
 
-        -- fly over first, with a timeout so a blocked path cannot stall us
         local t = os.clock()
 
-        while os.clock() - t < FLY_TIMEOUT do
+        while env.WCFarm and os.clock() - t < FLY_TIMEOUT do
             if not getRoot() then return false end
 
-            local dist = glideStep(pos)
-            if dist < 4 then break end
+            if moving then
+                local now = moving()
+                if not now then return false end
+                pos = now
+            end
+
+            if glideStep(pos) < 4 then return true end
 
             task.wait()
         end
 
-        -- then sit on it
-        t = os.clock()
+        return false
+    end
+
+    -- holds position for a while so a touch has time to register
+    local function holdAt(pos, duration)
+        if not getRoot() then return false end
+
+        local t = os.clock()
 
         repeat
             if not getRoot() then return false end
@@ -378,28 +387,40 @@ return function(section, data)
                         else
                             warned = false
 
+                            -- fly over to the brainrot, following it in case
+                            -- it moves while we are on our way
+                            local reached = flyTo(pivotOf(item), function()
+                                if not item.Parent then return nil end
+                                return pivotOf(item)
+                            end)
+
+                            -- then sit on it and interact until it is ours
                             local pos = pivotOf(item)
-                            local t = os.clock()
 
-                            while env.WCFarm and item.Parent and os.clock() - t < GRAB_TIME do
-                                if contested(item) then break end
+                            if reached then
+                                local t = os.clock()
 
-                                pos = pivotOf(item) or pos
-                                holdAt(pos, 0.1)
-                                grab(item)
+                                while env.WCFarm and item.Parent and os.clock() - t < GRAB_TIME do
+                                    if contested(item) then break end
 
-                                task.wait(0.05)
+                                    holdAt(pivotOf(item) or pos, 0.1)
+                                    grab(item)
+
+                                    task.wait(0.05)
+                                end
                             end
 
                             if item.Parent then
                                 -- still lying there, leave it alone for a bit
                                 skipUntil[item] = os.clock() + SKIP_TIME
                             else
-                                -- got it, haul it back to the plot
+                                -- got it, fly it back to the plot
                                 local plot = myPlot()
 
                                 if plot then
-                                    holdAt(plot + Vector3.new(0, 3, 0), 0.4)
+                                    local target = plot + Vector3.new(0, 3, 0)
+                                    flyTo(target)
+                                    holdAt(target, 0.4)
                                 end
                             end
 
