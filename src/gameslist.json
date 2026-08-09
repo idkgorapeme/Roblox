@@ -50,6 +50,7 @@
   { "game": "+1 Speed Monkey Escape",                        "id": "114697347887839",   "status": "🟢" },
   { "game": "Fall For Brainrots!",                        "id": "86368783421928",   "status": "🟢" },
   { "game": "Steal a Brainrot (Bases)",                        "id": "104339804279870",   "status": "🟡" },
-  { "game": "Brainrot Base (Item Spawners)",                        "id": "122526789002601",   "status": "🟡" }
+  { "game": "Brainrot Base (Item Spawners)",                        "id": "122526789002601",   "status": "🟡" },
+  { "game": "Steal a Brainrot (Zones)",                        "id": "88207898227053",   "status": "🟡" }
 ]
  
