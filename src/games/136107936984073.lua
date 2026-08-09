@@ -6,6 +6,7 @@ return function(section, data)
 
     local players = game:GetService("Players")
     local replicatedstorage = game:GetService("ReplicatedStorage")
+    local runservice = game:GetService("RunService")
     local plr = players.LocalPlayer
 
     env.MPTrain = false
@@ -22,16 +23,17 @@ return function(section, data)
     setdata.windelay = setdata.windelay or 1
     setdata.rebirth = setdata.rebirth or false
     setdata.dumbbell = setdata.dumbbell or false
-    setdata.dbfrom = setdata.dbfrom or 4
-    setdata.dbto = setdata.dbto or 44
+    setdata.flyspeed = setdata.flyspeed or 120
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
     local trainDelay = tonumber(setdata.traindelay) or 0.1
     local winDelay = tonumber(setdata.windelay) or 1
     local areaNumber = tonumber(setdata.area) or 1
-    local dbFrom = tonumber(setdata.dbfrom) or 4
-    local dbTo = tonumber(setdata.dbto) or 44
+    local flySpeed = tonumber(setdata.flyspeed) or 120
+
+    -- fixed sweep range
+    local DB_FROM, DB_TO = 1, 44
 
     ----------------------------------------------------------------
     -- Packages.Net remotes. The names contain a slash, which some
@@ -65,28 +67,6 @@ return function(section, data)
         if not n or n < 0.01 then return end
         trainDelay = n
         env.setconfig("traindelay", n)
-    end)
-
-    elements:Button("Test Train Once", section, function()
-        local ev = netRemote("RE/ClientTrain")
-
-        if not ev then
-            warn("[BrainrotPolice] RE/ClientTrain NOT FOUND")
-            return
-        end
-
-        print("[BrainrotPolice] firing " .. ev:GetFullName())
-
-        local ok, err = pcall(function() ev:FireServer() end)
-
-        if ok then
-            print("[BrainrotPolice] FireServer sent, muscle: "
-                .. tostring(plr:FindFirstChild("leaderstats")
-                    and plr.leaderstats:FindFirstChild("Muscle 💪")
-                    and plr.leaderstats["Muscle 💪"].Value))
-        else
-            warn("[BrainrotPolice] FireServer failed: " .. tostring(err))
-        end
     end)
 
     elements:Toggle("Auto Train", section, setdata.train, function(v)
@@ -175,23 +155,109 @@ return function(section, data)
         env.setconfig("windelay", n)
     end)
 
-    elements:Button("Test Win Target", section, function()
-        local part, err = winPart()
+    elements:Textbox("Fly Speed (default 120)", section, tostring(flySpeed), function(v)
+        local n = tonumber(v)
+        if not n or n <= 0 then return end
+        flySpeed = n
+        env.setconfig("flyspeed", n)
+    end)
 
-        if not part then
-            warn("[BrainrotPolice] " .. tostring(err))
-            return
+    ----------------------------------------------------------------
+    -- flight, body movers so control returns cleanly on disable
+    ----------------------------------------------------------------
+
+    local flyBV, flyBG
+
+    local function stopFlight()
+        if flyBV then pcall(function() flyBV:Destroy() end) flyBV = nil end
+        if flyBG then pcall(function() flyBG:Destroy() end) flyBG = nil end
+
+        pcall(function()
+            local root = getRoot()
+            if root then
+                root.AssemblyLinearVelocity = Vector3.zero
+                root.AssemblyAngularVelocity = Vector3.zero
+            end
+
+            local hum = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
+            if hum then hum.PlatformStand = false end
+        end)
+    end
+
+    -- rebuilds the movers on a fresh character after a respawn
+    local function ensureFlight()
+        local root = getRoot()
+        if not root then return nil end
+
+        if flyBV and flyBV.Parent ~= root then
+            pcall(function() flyBV:Destroy() end)
+            flyBV = nil
+        end
+        if flyBG and flyBG.Parent ~= root then
+            pcall(function() flyBG:Destroy() end)
+            flyBG = nil
         end
 
-        print("[BrainrotPolice] target: " .. part:GetFullName())
-        print("[BrainrotPolice] position: " .. tostring(part.Position))
-    end)
+        if not flyBV then
+            flyBV = Instance.new("BodyVelocity")
+            flyBV.Name = "BPWinFly"
+            flyBV.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+            flyBV.P = 1e4
+            flyBV.Velocity = Vector3.zero
+            flyBV.Parent = root
+        end
+
+        if not flyBG then
+            flyBG = Instance.new("BodyGyro")
+            flyBG.Name = "BPWinGyro"
+            flyBG.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+            flyBG.P = 1e4
+            flyBG.D = 500
+            flyBG.CFrame = root.CFrame
+            flyBG.Parent = root
+        end
+
+        return root
+    end
+
+    -- one step toward the target, returns true once we are there
+    local function glideStep(targetPos, arriveAt)
+        local root = ensureFlight()
+        if not root or not flyBV then return false end
+
+        arriveAt = arriveAt or 4
+
+        local delta = targetPos - root.Position
+        local dist = delta.Magnitude
+
+        -- a zero length vector has no .Unit, guard against NaN
+        if dist < 0.05 or dist <= arriveAt then
+            flyBV.Velocity = Vector3.zero
+            return true
+        end
+
+        -- ease off on approach instead of overshooting
+        flyBV.Velocity = delta.Unit * math.min(flySpeed, dist * 4)
+
+        if flyBG then
+            local look = Vector3.new(targetPos.X, root.Position.Y, targetPos.Z)
+            if (look - root.Position).Magnitude > 0.1 then
+                flyBG.CFrame = CFrame.new(root.Position, look)
+            end
+        end
+
+        return false
+    end
 
     -- starts off every session, it moves the character
     elements:Toggle("Auto Win", section, false, function(v)
         env.MPWin = v
         env.setconfig("win", v)
-        if not v then return end
+
+        if not v then
+            stopFlight()
+            return
+        end
 
         task.spawn(function()
             local warned = false
@@ -204,25 +270,40 @@ return function(section, data)
                         warn("[BrainrotPolice] " .. tostring(err))
                         warned = true
                     end
+                    stopFlight()
                     task.wait(1)
                 else
                     warned = false
 
-                    local root = getRoot()
                     local hum = plr.Character
                         and plr.Character:FindFirstChildOfClass("Humanoid")
 
-                    -- do not fling the corpse around between respawns
-                    if root and hum and hum.Health > 0 then
-                        pcall(function()
-                            root.CFrame = CFrame.new(part.Position + Vector3.new(0, 3, 0))
-                            root.AssemblyLinearVelocity = Vector3.zero
-                        end)
-                    end
+                    if not (hum and hum.Health > 0) then
+                        -- dead, do not fling the corpse around
+                        if flyBV then flyBV.Velocity = Vector3.zero end
+                        task.wait(0.5)
+                    else
+                        local target = part.Position + Vector3.new(0, 3, 0)
 
-                    task.wait(winDelay)
+                        -- fly there instead of teleporting
+                        while env.MPWin and not glideStep(target, 4) do
+                            local h = plr.Character
+                                and plr.Character:FindFirstChildOfClass("Humanoid")
+                            if not (h and h.Health > 0) then break end
+
+                            if not part.Parent then break end
+
+                            runservice.Heartbeat:Wait()
+                        end
+
+                        if not env.MPWin then break end
+
+                        task.wait(winDelay)
+                    end
                 end
             end
+
+            stopFlight()
         end)
     end)
 
@@ -262,38 +343,6 @@ return function(section, data)
     -- Goes high to low so the best affordable one is bought first.
     ----------------------------------------------------------------
 
-    elements:Textbox("Dumbbell From (default 4)", section, tostring(dbFrom), function(v)
-        local n = tonumber(v)
-        if not n or n < 1 then return end
-        dbFrom = math.floor(n)
-        env.setconfig("dbfrom", dbFrom)
-    end)
-
-    elements:Textbox("Dumbbell To (default 44)", section, tostring(dbTo), function(v)
-        local n = tonumber(v)
-        if not n or n < 1 then return end
-        dbTo = math.floor(n)
-        env.setconfig("dbto", dbTo)
-    end)
-
-    elements:Button("Buy Dumbbells Once", section, function()
-        local ev = netRemote("RE/BuyDumbbell")
-
-        if not ev then
-            warn("[BrainrotPolice] RE/BuyDumbbell NOT FOUND")
-            return
-        end
-
-        print("[BrainrotPolice] buying Dumbbell" .. dbTo .. " down to Dumbbell" .. dbFrom)
-
-        for i = dbTo, dbFrom, -1 do
-            pcall(function() ev:FireServer("Dumbbell" .. i) end)
-            task.wait(0.1)
-        end
-
-        print("[BrainrotPolice] sweep done")
-    end)
-
     elements:Toggle("Auto Buy Dumbbell", section, setdata.dumbbell, function(v)
         env.MPDumbbell = v
         env.setconfig("dumbbell", v)
@@ -315,7 +364,7 @@ return function(section, data)
                     warned = false
 
                     -- highest first, so we upgrade as soon as we can afford it
-                    for i = dbTo, dbFrom, -1 do
+                    for i = DB_TO, DB_FROM, -1 do
                         if not env.MPDumbbell then break end
                         pcall(function() ev:FireServer("Dumbbell" .. i) end)
                         task.wait(0.1)
