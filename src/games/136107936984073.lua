@@ -326,9 +326,22 @@ return function(section, data)
                         -- block the approach
                         startNoclip()
 
-                        -- stage 1: approach point, 50 studs to the left of
-                        -- the win block. left is -X in world space.
-                        local approach = part.Position + Vector3.new(-50, 0, 0)
+                        -- stage 1: approach point, 20 studs to the LEFT of
+                        -- the win block, using the block's own orientation
+                        -- rather than a world axis. RightVector points right,
+                        -- so negating it gives left no matter how the block
+                        -- is rotated. Flattened on Y so we stay level.
+                        local left = -part.CFrame.RightVector
+                        left = Vector3.new(left.X, 0, left.Z)
+
+                        if left.Magnitude < 0.05 then
+                            -- degenerate orientation, fall back to world -X
+                            left = Vector3.new(-1, 0, 0)
+                        else
+                            left = left.Unit
+                        end
+
+                        local approach = part.Position + left * 20
 
                         while env.MPWin and not glideStep(approach, 3) do
                             local h = plr.Character
