@@ -358,19 +358,75 @@ return function(section, data)
 
                         if not env.MPWin then break end
 
-                        -- stage 2: fly INTO the win block itself, noclip lets
-                        -- us sit inside it so the touch registers
+                        -- stage 2: fly INTO the win block.
+                        --
+                        -- The block has a large hitbox and teleports us away
+                        -- the moment we touch it, so waiting for "arrived at
+                        -- the centre" never fires. Watch for the touch itself
+                        -- and treat that as done.
                         if part.Parent then
                             local inside = part.Position
+                            local touched = false
+                            local touchConn
 
-                            while env.MPWin and not glideStep(inside, 1) do
+                            local startRoot = getRoot()
+                            local startPos = startRoot and startRoot.Position
+
+                            touchConn = part.Touched:Connect(function(hit)
+                                local char = plr.Character
+                                if char and hit:IsDescendantOf(char) then
+                                    touched = true
+                                end
+                            end)
+
+                            local elapsed = 0
+
+                            while env.MPWin and not touched do
                                 local h = plr.Character
                                     and plr.Character:FindFirstChildOfClass("Humanoid")
                                 if not (h and h.Health > 0) then break end
 
                                 if not part.Parent then break end
 
-                                runservice.Heartbeat:Wait()
+                                local r = getRoot()
+
+                                -- the block yanked us somewhere else, that is
+                                -- the win registering
+                                if r and startPos
+                                    and (r.Position - startPos).Magnitude > 150 then
+                                    touched = true
+                                    break
+                                end
+
+                                -- Noclip keeps CanCollide off, so Touched may
+                                -- never fire. Treat entering the hitbox as the
+                                -- completion instead, measured against the
+                                -- block's real size rather than a fixed radius.
+                                if r then
+                                    local half = part.Size / 2
+                                    local rel = part.CFrame:PointToObjectSpace(r.Position)
+
+                                    if math.abs(rel.X) <= half.X + 2
+                                        and math.abs(rel.Y) <= half.Y + 4
+                                        and math.abs(rel.Z) <= half.Z + 2 then
+                                        touched = true
+                                        break
+                                    end
+                                end
+
+                                if glideStep(inside, 1) then
+                                    -- reached the centre without a touch event
+                                    break
+                                end
+
+                                elapsed = elapsed + runservice.Heartbeat:Wait()
+
+                                -- never hang here forever
+                                if elapsed > 15 then break end
+                            end
+
+                            if touchConn then
+                                touchConn:Disconnect()
                             end
                         end
 
