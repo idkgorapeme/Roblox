@@ -200,7 +200,7 @@ return function(section, data)
                             teleportTo(part.Position)
                         end)
 
-                        task.wait(0.1)
+                        task.wait(0.5)
                     end
                 end
             end
