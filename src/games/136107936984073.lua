@@ -256,10 +256,11 @@ return function(section, data)
             return true
         end
 
-        -- ease off on approach instead of overshooting
-        -- fixed top speed, but still ease off near the target so we do
-        -- not overshoot it
-        flyBV.Velocity = delta.Unit * math.min(FLY_SPEED, dist * 4)
+        -- Fixed top speed, easing off near the target so we do not overshoot.
+        -- A floor keeps the last studs from crawling, which matters when the
+        -- arrive radius is 0 and we want to push right into a part.
+        local speed = math.clamp(dist * 4, 12, FLY_SPEED)
+        flyBV.Velocity = delta.Unit * speed
 
         if flyBG then
             local look = Vector3.new(targetPos.X, root.Position.Y, targetPos.Z)
@@ -346,13 +347,15 @@ return function(section, data)
 
                         -- stage 2: fly INTO the win block.
                         --
-                        -- The block has a large hitbox and teleports us away
-                        -- the moment we touch it, so waiting for "arrived at
-                        -- the centre" never fires. Watch for the touch itself
-                        -- and treat that as done.
+                        -- Being within 3 studs already counts the run as
+                        -- complete, but we keep flying until we are actually
+                        -- inside the pad. The completion flag must NOT end the
+                        -- loop, otherwise we stop 3 studs short.
                         if part.Parent then
                             local inside = part.Position
-                            local touched = false
+
+                            -- fired by the real Touched event
+                            local hitEvent = false
                             local touchConn
 
                             local startRoot = getRoot()
@@ -361,17 +364,13 @@ return function(section, data)
                             touchConn = part.Touched:Connect(function(hit)
                                 local char = plr.Character
                                 if char and hit:IsDescendantOf(char) then
-                                    touched = true
+                                    hitEvent = true
                                 end
                             end)
 
                             local elapsed = 0
-
-                            -- set once we are within 3 studs. the run already
-                            -- counts as done at that point, but we keep flying
-                            -- so the character actually lands on the pad.
-                            local done = false
                             local sinceDone = 0
+                            local counted = false
 
                             while env.MPWin do
                                 local h = plr.Character
@@ -381,38 +380,38 @@ return function(section, data)
                                 if not part.Parent then break end
 
                                 local r = getRoot()
+                                if not r then break end
 
-                                -- the block yanked us somewhere else, that is
-                                -- the win registering
-                                if r and startPos
-                                    and (r.Position - startPos).Magnitude > 150 then
-                                    touched = true
+                                local dist = (r.Position - part.Position).Magnitude
+
+                                -- the block teleported us away, the win landed
+                                if startPos and (r.Position - startPos).Magnitude > 150 then
                                     break
                                 end
 
-                                -- the Touched event fired
-                                if touched then break end
-
-                                -- Noclip keeps CanCollide off, so Touched may
-                                -- never fire. Within 3 studs counts as done.
-                                if not done and r
-                                    and (r.Position - part.Position).Magnitude <= 3 then
-                                    done = true
-                                    touched = true
+                                -- inside the pad, nothing left to do
+                                if dist <= 1 then
+                                    break
                                 end
 
-                                -- keep gliding all the way onto the pad, with
-                                -- a short grace period after it counted
-                                local arrived = glideStep(inside, 1)
+                                -- within 3 studs the run counts, but we carry
+                                -- on flying into the block
+                                if not counted and dist <= 3 then
+                                    counted = true
+                                end
 
-                                if arrived then break end
+                                -- push all the way to the centre, arrive at 0
+                                -- so nothing stops us early
+                                glideStep(inside, 0)
 
-                                if done then
-                                    sinceDone = sinceDone + runservice.Heartbeat:Wait()
+                                local dt = runservice.Heartbeat:Wait()
+
+                                if counted or hitEvent then
+                                    -- grace window to finish sinking in
+                                    sinceDone = sinceDone + dt
                                     if sinceDone > 1.5 then break end
                                 else
-                                    elapsed = elapsed + runservice.Heartbeat:Wait()
-                                    -- never hang here forever
+                                    elapsed = elapsed + dt
                                     if elapsed > 15 then break end
                                 end
                             end
