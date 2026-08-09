@@ -17,8 +17,12 @@ return function(section, data)
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
     local FARM_DELAY = 0.2
-    local GRAB_TIME = 1.5
+    local GRAB_TIME = 2.5
     local SKIP_TIME = 20
+
+    -- this game kicks for teleporting, so everything is flown instead
+    local FLY_SPEED = 220
+    local FLY_TIMEOUT = 8
 
     local minMoney = tonumber(setdata.minmoney) or 0
 
@@ -192,22 +196,104 @@ return function(section, data)
         end
     end
 
-    -- holds the character on a spot so a touch has time to register
+    ----------------------------------------------------------------
+    -- flight
+    ----------------------------------------------------------------
+    -- This game kicks for teleporting, so the character is flown there with
+    -- movers instead. Never PlatformStand or Anchored, those leave the
+    -- character stuck when the flight ends.
+
+    local function stopFlight()
+        local char = getChar()
+        if not char then return end
+
+        for _, name in ipairs({ "BPFlyPos", "BPFlyGyro" }) do
+            local mover = char:FindFirstChild(name, true)
+            if mover then mover:Destroy() end
+        end
+    end
+
+    -- creates the movers once and hands them back on later calls
+    local function movers()
+        local root = getRoot()
+        if not root then return nil, nil end
+
+        local vel = root:FindFirstChild("BPFlyPos")
+
+        if not vel then
+            vel = Instance.new("BodyVelocity")
+            vel.Name = "BPFlyPos"
+            vel.MaxForce = Vector3.new(1, 1, 1) * 1e6
+            vel.Velocity = Vector3.zero
+            vel.Parent = root
+        end
+
+        local gyro = root:FindFirstChild("BPFlyGyro")
+
+        if not gyro then
+            gyro = Instance.new("BodyGyro")
+            gyro.Name = "BPFlyGyro"
+            gyro.MaxTorque = Vector3.new(1, 1, 1) * 1e6
+            gyro.P = 8000
+            gyro.CFrame = root.CFrame
+            gyro.Parent = root
+        end
+
+        return vel, gyro
+    end
+
+    -- one step towards the target, returns the distance left
+    local function glideStep(pos)
+        local root = getRoot()
+        if not root then return math.huge end
+
+        local vel, gyro = movers()
+        if not vel then return math.huge end
+
+        local delta = pos - root.Position
+        local dist = delta.Magnitude
+
+        if dist < 0.05 then
+            vel.Velocity = Vector3.zero
+            return dist
+        end
+
+        -- slow down on approach, but never crawl on the last studs
+        local speed = math.clamp(dist * 4, 12, FLY_SPEED)
+        vel.Velocity = delta.Unit * speed
+
+        if gyro then
+            gyro.CFrame = CFrame.new(root.Position, root.Position + delta.Unit)
+        end
+
+        return dist
+    end
+
+    -- Flies to a spot and stays there for a while so a touch registers.
+    -- Returns false when it could not get there in time.
     local function holdAt(pos, duration)
-        local target = CFrame.new(pos)
+        local root = getRoot()
+        if not root then return false end
+
+        -- fly over first, with a timeout so a blocked path cannot stall us
         local t = os.clock()
 
+        while os.clock() - t < FLY_TIMEOUT do
+            if not getRoot() then return false end
+
+            local dist = glideStep(pos)
+            if dist < 4 then break end
+
+            task.wait()
+        end
+
+        -- then sit on it
+        t = os.clock()
+
         repeat
-            local char = getChar()
-            local root = getRoot()
-            if not char or not root then return false end
+            if not getRoot() then return false end
 
-            pcall(function()
-                char:PivotTo(target)
-                root.AssemblyLinearVelocity = Vector3.zero
-                root.AssemblyAngularVelocity = Vector3.zero
-            end)
-
+            glideStep(pos)
             task.wait()
         until os.clock() - t >= duration
 
@@ -255,7 +341,11 @@ return function(section, data)
     elements:Toggle("Auto Farm", section, false, function(v)
         env.WCFarm = v
         env.setconfig("farm", v)
-        if not v then return end
+
+        if not v then
+            stopFlight()
+            return
+        end
 
         task.spawn(function()
             local warned = false
@@ -318,6 +408,9 @@ return function(section, data)
                     end
                 end
             end
+
+            -- always hand control back to the player
+            stopFlight()
         end)
     end)
 end
