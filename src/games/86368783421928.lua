@@ -10,34 +10,26 @@ return function(section, data)
 
     env.FBGuards = false
     env.FBFarm = false
-    env.FBSell = false
+    env.FBFall = false
     env.FBSpeed = false
     env.FBRebirth = false
 
     local setdata = data[tostring(game.PlaceId)] or {}
     setdata.guards = setdata.guards or false
-    setdata.guarddelay = setdata.guarddelay or 0.5
     setdata.farm = setdata.farm or false
-    setdata.farmdelay = setdata.farmdelay or 0.2
-    setdata.spawner = setdata.spawner or "Celestial"
+    setdata.fall = setdata.fall or false
     setdata.speed = setdata.speed or false
-    setdata.speedamount = setdata.speedamount or 10
-    setdata.speeddelay = setdata.speeddelay or 0.5
-    setdata.sell = setdata.sell or false
-    setdata.selldelay = setdata.selldelay or 1
     setdata.rebirth = setdata.rebirth or false
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
-    local guardDelay = tonumber(setdata.guarddelay) or 0.5
-    local farmDelay = tonumber(setdata.farmdelay) or 0.2
-    local spawnerName = tostring(setdata.spawner or "Celestial")
-    local speedAmount = tonumber(setdata.speedamount) or 10
-    local speedDelay = tonumber(setdata.speeddelay) or 0.5
-
-    -- middle of the Celestial area, used when nothing is up for grabs so we
-    -- stay where the items drop instead of falling out of the zone
+    -- fixed settings, no textboxes
+    local SPAWNER = "Celestial"
     local CELESTIAL_POS = Vector3.new(155, 5202, -2079)
+    local GUARD_DELAY = 0.5
+    local FARM_DELAY = 0.2
+    local SPEED_AMOUNT = 10
+    local SPEED_DELAY = 0.5
 
     local function getChar() return plr.Character end
 
@@ -46,9 +38,13 @@ return function(section, data)
         return char and char:FindFirstChild("HumanoidRootPart")
     end
 
-    local function alive()
+    local function getHum()
         local char = getChar()
-        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        return char and char:FindFirstChildOfClass("Humanoid")
+    end
+
+    local function alive()
+        local hum = getHum()
         return hum ~= nil and hum.Health > 0
     end
 
@@ -68,13 +64,6 @@ return function(section, data)
         local dp = workspace:FindFirstChild("DropperParts")
         return dp and dp:FindFirstChild("Guards") or nil
     end
-
-    elements:Textbox("Guard Delay (default 0.5)", section, tostring(guardDelay), function(v)
-        local n = tonumber(v)
-        if not n or n < 0.05 then return end
-        guardDelay = n
-        env.setconfig("guarddelay", n)
-    end)
 
     -- starts off every session, it changes the world
     elements:Toggle("Auto Delete Guards", section, false, function(v)
@@ -96,33 +85,25 @@ return function(section, data)
                 else
                     warned = false
 
-                    -- local only, the server still knows about them, but they
-                    -- cannot touch a character that never sees them
                     for _, g in ipairs(folder:GetChildren()) do
                         pcall(function() g:Destroy() end)
                     end
                 end
 
-                task.wait(guardDelay)
+                task.wait(GUARD_DELAY)
             end
         end)
     end)
 
     ----------------------------------------------------------------
-    -- auto farm collection zone brainrots
+    -- auto farm
     ----------------------------------------------------------------
 
-    -- every part named CollectionZone<n> sitting directly in workspace
-    local function collectionZones()
-        local out = {}
-
-        for _, c in ipairs(workspace:GetChildren()) do
-            if c:IsA("BasePart") and c.Name:match("^CollectionZone") then
-                out[#out + 1] = c
-            end
-        end
-
-        return out
+    -- workspace.DropperParts.ItemSpawners.Celestial
+    local function spawnerFolder()
+        local dp = workspace:FindFirstChild("DropperParts")
+        local spawners = dp and dp:FindFirstChild("ItemSpawners")
+        return spawners and spawners:FindFirstChild(SPAWNER) or nil
     end
 
     local function pivotOf(inst)
@@ -135,31 +116,6 @@ return function(section, data)
         return part and part.Position or nil
     end
 
-    -- workspace.DropperParts.ItemSpawners.<tier>
-    local function spawnerFolder()
-        local dp = workspace:FindFirstChild("DropperParts")
-        local spawners = dp and dp:FindFirstChild("ItemSpawners")
-        if not spawners then return nil end
-
-        return spawners:FindFirstChild(spawnerName), spawners
-    end
-
-    -- the folders a fallen brainrot can end up in
-    local function brainrotFolders()
-        local out = {}
-
-        -- the chosen spawner tier comes first, that is what we want most
-        local spawner = spawnerFolder()
-        if spawner then out[#out + 1] = spawner end
-
-        for _, name in ipairs({ "DroppedItems", "zBrainrot", "FallParts" }) do
-            local f = workspace:FindFirstChild(name)
-            if f then out[#out + 1] = f end
-        end
-
-        return out
-    end
-
     -- <item>.InfoGUI.TextLabels.Earnings, something like "$12.5K/s"
     local function earningsOf(item)
         local gui = item:FindFirstChild("InfoGUI", true)
@@ -167,59 +123,73 @@ return function(section, data)
         local label = labels and labels:FindFirstChild("Earnings")
 
         if not label then
-            -- the layout can differ, fall back to a deep search by name
             label = item:FindFirstChild("Earnings", true)
         end
 
-        if not label then return nil, nil end
+        if not label then return nil end
 
-        local text = tostring(label.Text or "")
-
-        -- pull the number and its suffix out of the label
-        local num, suffix = text:match("([%d%.,]+)%s*([KMBTqQ]?)")
-        if not num then return nil, text end
+        local num, suffix = tostring(label.Text or ""):match("([%d%.,]+)%s*([KMBTqQ]?)")
+        if not num then return nil end
 
         num = tonumber((num:gsub(",", "")))
-        if not num then return nil, text end
+        if not num then return nil end
 
         local mult = ({
             K = 1e3, M = 1e6, B = 1e9, T = 1e12, q = 1e15, Q = 1e18,
         })[suffix] or 1
 
-        return num * mult, text
+        return num * mult
     end
 
-    -- Everything the chosen spawner has dropped that carries an earnings
-    -- label, sorted by earnings, highest first.
-    local function zoneBrainrots()
+    -- the richest dropped item first
+    local function bestItem()
         local spawner = spawnerFolder()
-        if not spawner then return {} end
+        if not spawner then return nil end
 
-        local out = {}
+        local best, bestValue = nil, -1
 
         for _, item in ipairs(spawner:GetChildren()) do
-            local value, text = earningsOf(item)
+            local value = earningsOf(item)
 
-            if value then
-                local pos = pivotOf(item)
-
-                if pos then
-                    out[#out + 1] = {
-                        inst = item,
-                        pos = pos,
-                        value = value,
-                        text = text,
-                    }
-                end
+            if value and value > bestValue and pivotOf(item) then
+                best, bestValue = item, value
             end
         end
 
-        -- richest first, that is the whole point
-        table.sort(out, function(a, b) return a.value > b.value end)
-        return out
+        return best
     end
 
-    -- holds the character on a spot for a few frames so a touch registers
+    -- Picking one up needs an actual interaction, standing on it is not
+    -- always enough. Prompts and touch events are both tried.
+    local function grab(item)
+        local root = getRoot()
+        if not root then return end
+
+        for _, d in ipairs(item:GetDescendants()) do
+            if d:IsA("ProximityPrompt") then
+                pcall(function()
+                    d.HoldDuration = 0
+                    d.MaxActivationDistance = math.max(d.MaxActivationDistance, 50)
+                end)
+
+                if fireproximityprompt then
+                    pcall(function() fireproximityprompt(d) end)
+                end
+            elseif d:IsA("ClickDetector") then
+                if fireclickdetector then
+                    pcall(function() fireclickdetector(d) end)
+                end
+            elseif d:IsA("BasePart") and firetouchinterest then
+                -- a fake touch, off and on again so the server sees a hit
+                pcall(function()
+                    firetouchinterest(root, d, 0)
+                    firetouchinterest(root, d, 1)
+                end)
+            end
+        end
+    end
+
+    -- holds the character on a spot so a touch has time to register
     local function holdAt(pos, duration)
         local target = CFrame.new(pos)
         local t = os.clock()
@@ -244,86 +214,11 @@ return function(section, data)
     -- your own plot, that is where a carried brainrot has to be dropped off
     local function myPlot()
         local direct = workspace:FindFirstChild("Plot_" .. plr.Name)
-        if direct then return pivotOf(direct) end
-
-        for _, c in ipairs(workspace:GetChildren()) do
-            if c.Name:match("^Plot_") and c.Name:sub(6) == plr.Name then
-                return pivotOf(c)
-            end
-        end
-
-        return nil
+        return direct and pivotOf(direct) or nil
     end
 
-    elements:Button("Dump Brainrot Info", section, function()
-        local spawner, all = spawnerFolder()
-
-        if all then
-            local names = {}
-            for _, c in ipairs(all:GetChildren()) do
-                names[#names + 1] = c.Name .. " (" .. #c:GetChildren() .. ")"
-            end
-            print("[BrainrotPolice] ItemSpawners: " .. table.concat(names, ", "))
-        else
-            warn("[BrainrotPolice] workspace.DropperParts.ItemSpawners not found")
-        end
-
-        if spawner then
-            local kids = spawner:GetChildren()
-            print("[BrainrotPolice] spawner " .. spawnerName .. ": " .. #kids .. " children")
-
-            for i = 1, math.min(#kids, 8) do
-                local k = kids[i]
-                local value, text = earningsOf(k)
-                print("  " .. k.ClassName .. " | " .. k.Name
-                    .. " | earnings=" .. tostring(text)
-                    .. " -> " .. tostring(value)
-                    .. " | " .. tostring(pivotOf(k)))
-            end
-        else
-            warn("[BrainrotPolice] spawner " .. spawnerName .. " not found")
-        end
-
-        local zones = collectionZones()
-        print("[BrainrotPolice] collection zones: " .. #zones)
-
-        for _, z in ipairs(zones) do
-            print("  " .. z.Name .. " @ " .. tostring(z.Position) .. " size " .. tostring(z.Size))
-        end
-
-        for _, folder in ipairs(brainrotFolders()) do
-            local kids = folder:GetChildren()
-            print("[BrainrotPolice] " .. folder.Name .. ": " .. #kids .. " children")
-
-            for i = 1, math.min(#kids, 5) do
-                print("  " .. kids[i].ClassName .. " | " .. kids[i].Name)
-            end
-        end
-
-        local found = zoneBrainrots()
-        print("[BrainrotPolice] in a collection zone right now: " .. #found)
-
-        local plot = myPlot()
-        print("[BrainrotPolice] my plot: " .. (plot and tostring(plot) or "not found"))
-        print("[BrainrotPolice] carrying: " .. tostring(plr:GetAttribute("IsCarryingBrainrot")))
-    end)
-
-    elements:Textbox("Spawner (default Celestial)", section, spawnerName, function(v)
-        v = tostring(v):gsub("^%s+", ""):gsub("%s+$", "")
-        if v == "" then return end
-        spawnerName = v
-        env.setconfig("spawner", v)
-    end)
-
-    elements:Textbox("Farm Delay (default 0.2)", section, tostring(farmDelay), function(v)
-        local n = tonumber(v)
-        if not n or n < 0.05 then return end
-        farmDelay = n
-        env.setconfig("farmdelay", n)
-    end)
-
     -- starts off every session, it moves the character
-    elements:Toggle("Auto Farm Brainrots", section, false, function(v)
+    elements:Toggle("Auto Farm", section, false, function(v)
         env.FBFarm = v
         env.setconfig("farm", v)
         if not v then return end
@@ -334,38 +229,46 @@ return function(section, data)
             while env.FBFarm do
                 if not alive() then
                     task.wait(0.5)
-                else
-                    local carrying = plr:GetAttribute("IsCarryingBrainrot")
+                elseif plr:GetAttribute("IsCarryingBrainrot") then
+                    -- drop it off at home before grabbing the next one
+                    local plot = myPlot()
 
-                    if carrying then
-                        -- drop it off at home before grabbing the next one
-                        local plot = myPlot()
-
-                        if plot then
-                            holdAt(plot + Vector3.new(0, 3, 0), 0.4)
-                            task.wait(farmDelay)
-                        elseif not warned then
-                            warn("[BrainrotPolice] your plot was not found, cannot drop off")
-                            warned = true
-                            task.wait(1)
-                        else
-                            task.wait(1)
-                        end
+                    if plot then
+                        holdAt(plot + Vector3.new(0, 3, 0), 0.4)
+                        task.wait(FARM_DELAY)
                     else
-                        local found = zoneBrainrots()
-
-                        if #found == 0 then
-                            -- nothing to grab, wait in the zone so we do not
-                            -- drift off while the next batch spawns
-                            holdAt(CELESTIAL_POS, 0.1)
-                            task.wait(0.3)
-                        else
-                            warned = false
-
-                            -- the one with the highest earnings
-                            holdAt(found[1].pos, 0.3)
-                            task.wait(farmDelay)
+                        if not warned then
+                            warn("[BrainrotPolice] Plot_" .. plr.Name .. " not found")
+                            warned = true
                         end
+                        task.wait(1)
+                    end
+                else
+                    local item = bestItem()
+
+                    if not item then
+                        -- nothing dropped yet, wait where the items land
+                        holdAt(CELESTIAL_POS, 0.1)
+                        task.wait(0.3)
+                    else
+                        warned = false
+
+                        local pos = pivotOf(item)
+
+                        -- sit on it and interact until it is in our hands
+                        local t = os.clock()
+
+                        while env.FBFarm and item.Parent and os.clock() - t < 2 do
+                            if plr:GetAttribute("IsCarryingBrainrot") then break end
+
+                            pos = pivotOf(item) or pos
+                            holdAt(pos, 0.1)
+                            grab(item)
+
+                            task.wait(0.05)
+                        end
+
+                        task.wait(FARM_DELAY)
                     end
                 end
             end
@@ -373,24 +276,56 @@ return function(section, data)
     end)
 
     ----------------------------------------------------------------
-    -- auto upgrade speed
+    -- auto fall
     ----------------------------------------------------------------
 
-    elements:Textbox("Speed Amount (default 10)", section, tostring(speedAmount), function(v)
-        local n = tonumber(v)
-        if not n or n < 1 then return end
-        speedAmount = math.floor(n)
-        env.setconfig("speedamount", speedAmount)
+    -- equips whatever sits in slot 1 of the backpack
+    local function equipSlot1()
+        local char = getChar()
+        local hum = getHum()
+        if not char or not hum then return nil end
+
+        -- already holding something, nothing to do
+        local held = char:FindFirstChildOfClass("Tool")
+        if held then return held end
+
+        local backpack = plr:FindFirstChildOfClass("Backpack")
+        local tool = backpack and backpack:FindFirstChildOfClass("Tool")
+        if not tool then return nil end
+
+        pcall(function() hum:EquipTool(tool) end)
+
+        return char:FindFirstChildOfClass("Tool")
+    end
+
+    -- starts off every session, it moves the character
+    elements:Toggle("Auto Fall", section, false, function(v)
+        env.FBFall = v
+        env.setconfig("fall", v)
+        if not v then return end
+
+        task.spawn(function()
+            while env.FBFall do
+                if not alive() then
+                    task.wait(0.5)
+                else
+                    local tool = equipSlot1()
+
+                    if tool then
+                        pcall(function() tool:Activate() end)
+                    end
+
+                    task.wait(0.5)
+                end
+            end
+        end)
     end)
 
-    elements:Textbox("Speed Delay (default 0.5)", section, tostring(speedDelay), function(v)
-        local n = tonumber(v)
-        if not n or n < 0.05 then return end
-        speedDelay = n
-        env.setconfig("speeddelay", n)
-    end)
+    ----------------------------------------------------------------
+    -- auto upgrade
+    ----------------------------------------------------------------
 
-    elements:Toggle("Auto Upgrade Speed", section, setdata.speed, function(v)
+    elements:Toggle("Auto Upgrade", section, setdata.speed, function(v)
         env.FBSpeed = v
         env.setconfig("speed", v)
         if not v then return end
@@ -404,41 +339,13 @@ return function(section, data)
                 if ev then
                     warned = false
                     -- the server ignores it when there is not enough money
-                    pcall(function() ev:FireServer(speedAmount) end)
+                    pcall(function() ev:FireServer(SPEED_AMOUNT) end)
                 elseif not warned then
                     warn("[BrainrotPolice] BrainrotStorage.Events.PurchaseSpeed not found")
                     warned = true
                 end
 
-                task.wait(speedDelay)
-            end
-        end)
-    end)
-
-    ----------------------------------------------------------------
-    -- auto sell
-    ----------------------------------------------------------------
-
-    elements:Toggle("Auto Sell", section, setdata.sell, function(v)
-        env.FBSell = v
-        env.setconfig("sell", v)
-        if not v then return end
-
-        task.spawn(function()
-            local warned = false
-
-            while env.FBSell do
-                local ev = event("RequestSell")
-
-                if ev then
-                    warned = false
-                    pcall(function() ev:FireServer() end)
-                elseif not warned then
-                    warn("[BrainrotPolice] BrainrotStorage.Events.RequestSell not found")
-                    warned = true
-                end
-
-                task.wait(tonumber(setdata.selldelay) or 1)
+                task.wait(SPEED_DELAY)
             end
         end)
     end)
