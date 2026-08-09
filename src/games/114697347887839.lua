@@ -84,6 +84,7 @@ return function(section, data)
     -- control how the script hops closer stage by stage until the wanted
     -- one has loaded.
     local STAGE_STEP = 1      -- hop over every stage (1, 2, 3, ...)
+    local HOP_OFFSET = 10     -- how many studs next to the win block to stop
     local HOP_WAIT = 0.25     -- pause after a hop so the next chunk can load
     local HOP_TIMEOUT = 6     -- max seconds to wait for one stage to appear
     local TP_HOLD = 0.2       -- seconds to keep re-applying a teleport
@@ -226,6 +227,20 @@ return function(section, data)
         return true
     end
 
+    -- a spot HOP_OFFSET studs beside the block instead of on top of it
+    local function besidePart(part)
+        local dir = part.CFrame.LookVector
+        dir = Vector3.new(dir.X, 0, dir.Z)
+
+        if dir.Magnitude < 0.05 then
+            dir = Vector3.new(0, 0, 1)
+        else
+            dir = dir.Unit
+        end
+
+        return part.Position - dir * HOP_OFFSET
+    end
+
     -- waits until workspace.Map.World<n>.Stages.Stage<n> exists
     local function waitForFolder(n)
         local t = os.clock()
@@ -287,8 +302,10 @@ return function(section, data)
         return nil
     end
 
-    -- walks into one stage: waypoint first if it has one, then the win pad
-    local function hopTo(n)
+    -- walks into one stage: waypoint first if it has one, then the win pad.
+    -- Stages on the way only get a stop next to the pad, the wanted stage is
+    -- the one we actually land on.
+    local function hopTo(n, isTarget)
         local wp = waypointPos(n)
 
         if wp then
@@ -299,9 +316,13 @@ return function(section, data)
         local part, err = waitForStage(n)
         if not part then return false, err end
 
-        -- land on the pad and stay there until the win registers, that is
-        -- what unlocks and streams in the next stage
-        touchPad(part)
+        if isTarget then
+            -- stay on the pad until the win registers
+            touchPad(part)
+        else
+            teleportTo(besidePart(part))
+        end
+
         task.wait(HOP_WAIT)
 
         return true
@@ -328,7 +349,7 @@ return function(section, data)
         for n = STAGE_STEP, target, STAGE_STEP do
             if not env.MEWin then return false, "cancelled" end
 
-            local ok, err = hopTo(n)
+            local ok, err = hopTo(n, n == target)
 
             if not ok then
                 lastErr = err
