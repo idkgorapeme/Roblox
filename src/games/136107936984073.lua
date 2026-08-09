@@ -20,17 +20,15 @@ return function(section, data)
     setdata.win = setdata.win or false
     setdata.world = setdata.world or "World 1"
     setdata.area = setdata.area or 1
-    setdata.windelay = setdata.windelay or 1
     setdata.rebirth = setdata.rebirth or false
     setdata.dumbbell = setdata.dumbbell or false
-    setdata.flyspeed = setdata.flyspeed or 120
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
     local trainDelay = tonumber(setdata.traindelay) or 0.1
-    local winDelay = tonumber(setdata.windelay) or 1
+    -- fixed, no longer user configurable
+    local FLY_SPEED = 300
     local areaNumber = tonumber(setdata.area) or 1
-    local flySpeed = tonumber(setdata.flyspeed) or 120
 
     -- fixed sweep range
     local DB_FROM, DB_TO = 1, 44
@@ -148,20 +146,6 @@ return function(section, data)
         env.setconfig("area", areaNumber)
     end)
 
-    elements:Textbox("Win Delay (default 1)", section, tostring(winDelay), function(v)
-        local n = tonumber(v)
-        if not n or n < 0.1 then return end
-        winDelay = n
-        env.setconfig("windelay", n)
-    end)
-
-    elements:Textbox("Fly Speed (default 120)", section, tostring(flySpeed), function(v)
-        local n = tonumber(v)
-        if not n or n <= 0 then return end
-        flySpeed = n
-        env.setconfig("flyspeed", n)
-    end)
-
     ----------------------------------------------------------------
     -- flight, body movers so control returns cleanly on disable
     ----------------------------------------------------------------
@@ -273,7 +257,9 @@ return function(section, data)
         end
 
         -- ease off on approach instead of overshooting
-        flyBV.Velocity = delta.Unit * math.min(flySpeed, dist * 4)
+        -- fixed top speed, but still ease off near the target so we do
+        -- not overshoot it
+        flyBV.Velocity = delta.Unit * math.min(FLY_SPEED, dist * 4)
 
         if flyBG then
             local look = Vector3.new(targetPos.X, root.Position.Y, targetPos.Z)
@@ -326,39 +312,7 @@ return function(section, data)
                         -- block the approach
                         startNoclip()
 
-                        -- stage 1: approach point, 20 studs to the LEFT as
-                        -- seen from the PLAYER, not from the block. Left is
-                        -- the character's own RightVector negated, flattened
-                        -- on Y so the approach stays level.
-                        local myRoot = getRoot()
-                        local left
-
-                        if myRoot then
-                            left = -myRoot.CFrame.RightVector
-                            left = Vector3.new(left.X, 0, left.Z)
-                        end
-
-                        if not left or left.Magnitude < 0.05 then
-                            left = Vector3.new(-1, 0, 0)
-                        else
-                            left = left.Unit
-                        end
-
-                        local approach = part.Position + left * 20
-
-                        while env.MPWin and not glideStep(approach, 3) do
-                            local h = plr.Character
-                                and plr.Character:FindFirstChildOfClass("Humanoid")
-                            if not (h and h.Health > 0) then break end
-
-                            if not part.Parent then break end
-
-                            runservice.Heartbeat:Wait()
-                        end
-
-                        if not env.MPWin then break end
-
-                        -- stage 2: fly INTO the win block.
+                        -- fly straight INTO the win block.
                         --
                         -- The block has a large hitbox and teleports us away
                         -- the moment we touch it, so waiting for "arrived at
