@@ -17,6 +17,11 @@ return function(section, data)
 
     local FARM_DELAY = 0.2
 
+    -- how long a brainrot is ignored after we failed to pick it up, so a
+    -- player camping on one cannot stall the whole loop
+    local SKIP_TIME = 20
+    local GRAB_TIME = 1.5
+
     local minMoney = tonumber(setdata.minmoney) or 500000
 
     local function getChar() return plr.Character end
@@ -76,18 +81,73 @@ return function(section, data)
         return num * mult
     end
 
-    -- the richest brainrot on the map, ignoring anything below minMoney
+    -- brainrots we could not get, mapped to the time they may be tried again
+    local skipUntil = {}
+
+    -- Someone else is carrying it: the model hangs off a foreign character,
+    -- is welded to one, or is simply glued to another player's position.
+    local function heldBySomeoneElse(item)
+        local myChar = getChar()
+
+        -- parented straight into another character
+        local parent = item.Parent
+        while parent and parent ~= workspace do
+            local other = players:GetPlayerFromCharacter(parent)
+            if other and other ~= plr then return true end
+            parent = parent.Parent
+        end
+
+        -- welded onto another character
+        for _, d in ipairs(item:GetDescendants()) do
+            if d:IsA("WeldConstraint") or d:IsA("Weld") or d:IsA("Motor6D") then
+                for _, part in ipairs({ d.Part0, d.Part1 }) do
+                    if part then
+                        local char = part:FindFirstAncestorOfClass("Model")
+                        local other = char and players:GetPlayerFromCharacter(char)
+                        if other and other ~= plr then return true end
+                    end
+                end
+            end
+        end
+
+        -- riding along with another player
+        local pos = pivotOf(item)
+
+        if pos then
+            for _, other in ipairs(players:GetPlayers()) do
+                if other ~= plr then
+                    local char = other.Character
+                    local root = char and char:FindFirstChild("HumanoidRootPart")
+
+                    if root and (root.Position - pos).Magnitude < 8 then
+                        return true
+                    end
+                end
+            end
+        end
+
+        return false
+    end
+
+    -- the richest brainrot on the map, ignoring anything below minMoney,
+    -- anything on cooldown and anything another player is holding
     local function bestItem()
         local folder = brainrotFolder()
         if not folder then return nil end
 
+        local now = os.clock()
         local best, bestValue = nil, -1
 
         for _, item in ipairs(folder:GetChildren()) do
-            local value = cashOf(item)
+            local blocked = skipUntil[item] and skipUntil[item] > now
 
-            if value and value >= minMoney and value > bestValue and pivotOf(item) then
-                best, bestValue = item, value
+            if not blocked then
+                local value = cashOf(item)
+
+                if value and value >= minMoney and value > bestValue
+                    and pivotOf(item) and not heldBySomeoneElse(item) then
+                    best, bestValue = item, value
+                end
             end
         end
 
@@ -249,19 +309,37 @@ return function(section, data)
                 if not alive() then
                     task.wait(0.5)
                 else
+                    -- forget stale cooldowns so the table cannot grow forever
+                    local now = os.clock()
+                    for item, until_ in pairs(skipUntil) do
+                        if until_ <= now or not item.Parent then
+                            skipUntil[item] = nil
+                        end
+                    end
+
                     local item = bestItem()
 
                     if not item then
-                        -- nothing worth taking yet
+                        -- nothing worth taking, or everything is taken
                         task.wait(0.5)
                     else
                         warned = false
 
-                        -- grab it
+                        local before = plr:GetAttribute("CarryCount") or 0
                         local pos = pivotOf(item)
+                        local got = false
+
                         local t = os.clock()
 
-                        while env.BSFarm and item.Parent and os.clock() - t < 1 do
+                        while env.BSFarm and item.Parent and os.clock() - t < GRAB_TIME do
+                            -- someone grabbed it while we were on our way
+                            if heldBySomeoneElse(item) then break end
+
+                            if (plr:GetAttribute("CarryCount") or 0) > before then
+                                got = true
+                                break
+                            end
+
                             pos = pivotOf(item) or pos
                             holdAt(pos, 0.1)
                             grab(item)
@@ -269,14 +347,22 @@ return function(section, data)
                             task.wait(0.05)
                         end
 
-                        -- then straight back to base to hand it in
-                        local base = myBase()
+                        -- the model vanished from the folder, that counts too
+                        if not item.Parent then got = true end
 
-                        if base then
-                            holdAt(base + Vector3.new(0, 3, 0), 0.4)
-                        elseif not warned then
-                            warn("[BrainrotPolice] your base was not found in workspace.Bases")
-                            warned = true
+                        if not got then
+                            -- leave it alone for a while, a camper is on it
+                            skipUntil[item] = os.clock() + SKIP_TIME
+                        else
+                            -- back to base to hand it in
+                            local base = myBase()
+
+                            if base then
+                                holdAt(base + Vector3.new(0, 3, 0), 0.4)
+                            elseif not warned then
+                                warn("[BrainrotPolice] your base was not found in workspace.Bases")
+                                warned = true
+                            end
                         end
 
                         task.wait(FARM_DELAY)
