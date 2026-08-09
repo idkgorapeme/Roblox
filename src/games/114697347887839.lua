@@ -204,7 +204,7 @@ return function(section, data)
 
                 local out = {}
                 if jump then out[#out + 1] = jump end
-                out[#out + 1] = Vector3.new(-3640, 153, -9355)
+                out[#out + 1] = Vector3.new(-3605, 159, -9375)
 
                 return out
             end,
