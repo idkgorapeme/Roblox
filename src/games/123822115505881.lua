@@ -5,14 +5,19 @@ return function(section, data)
     local env = getgenv()
 
     local players = game:GetService("Players")
+    local replicatedstorage = game:GetService("ReplicatedStorage")
     local plr = players.LocalPlayer
 
     env.ZOBuy = false
     env.ZOSteal = false
+    env.ZOCollect = false
+    env.ZORebirth = false
 
     local setdata = data[tostring(game.PlaceId)] or {}
     setdata.buy = setdata.buy or false
     setdata.steal = setdata.steal or false
+    setdata.collect = setdata.collect or false
+    setdata.rebirth = setdata.rebirth or false
     data[tostring(game.PlaceId)] = setdata
     writefile("BrainrotPolice/Config.json", game:GetService("HttpService"):JSONEncode(data))
 
@@ -21,6 +26,8 @@ return function(section, data)
 
     local BUY_DELAY = 1
     local STEAL_DELAY = 0.2
+    local COLLECT_HOLD = 0.15
+    local COLLECT_DELAY = 0.2
     local GRAB_TIME = 1.5
     local SKIP_TIME = 20
 
@@ -46,6 +53,13 @@ return function(section, data)
 
         local part = inst:FindFirstChildWhichIsA("BasePart", true)
         return part and part.Position or nil
+    end
+
+    -- ReplicatedStorage.Utilities.TypedRemote.<name>
+    local function remote(name)
+        local utils = replicatedstorage:FindFirstChild("Utilities")
+        local typed = utils and utils:FindFirstChild("TypedRemote")
+        return typed and typed:FindFirstChild(name) or nil
     end
 
     local SUFFIX = { k = 1e3, m = 1e6, b = 1e9, t = 1e12, q = 1e15 }
@@ -359,6 +373,135 @@ return function(section, data)
                         end
                     end
                 end
+            end
+        end)
+    end)
+
+    ----------------------------------------------------------------
+    -- auto collect
+    ----------------------------------------------------------------
+
+    -- workspace.Plots:GetChildren()[2].RanchEntities, our own ranch
+    local function ranchEntities()
+        local plots = workspace:FindFirstChild("Plots")
+        if not plots then return {} end
+
+        local kids = plots:GetChildren()
+        local ranch = nil
+
+        -- prefer the plot that is actually ours
+        for _, p in ipairs(kids) do
+            if p:GetAttribute("Owner") == plr.Name
+                or p:GetAttribute("Player") == plr.Name
+                or p.Name == plr.Name then
+                ranch = p:FindFirstChild("RanchEntities")
+                break
+            end
+        end
+
+        -- fall back to the second plot, that is where ours sits by default
+        if not ranch then
+            local second = kids[2]
+            ranch = second and second:FindFirstChild("RanchEntities") or nil
+        end
+
+        -- last resort, any plot that has one
+        if not ranch then
+            for _, p in ipairs(kids) do
+                local r = p:FindFirstChild("RanchEntities")
+                if r then
+                    ranch = r
+                    break
+                end
+            end
+        end
+
+        if not ranch then return {} end
+
+        local out = {}
+
+        for _, item in ipairs(ranch:GetChildren()) do
+            if pivotOf(item) then out[#out + 1] = item end
+        end
+
+        return out
+    end
+
+    -- starts off every session, it moves the character
+    elements:Toggle("Auto Collect", section, false, function(v)
+        env.ZOCollect = v
+        env.setconfig("collect", v)
+        if not v then return end
+
+        task.spawn(function()
+            local warned = false
+
+            while env.ZOCollect do
+                if not alive() then
+                    task.wait(0.5)
+                else
+                    local animals = ranchEntities()
+
+                    if #animals == 0 then
+                        if not warned then
+                            warn("[BrainrotPolice] no RanchEntities found in workspace.Plots")
+                            warned = true
+                        end
+
+                        task.wait(1)
+                    else
+                        warned = false
+
+                        -- stand on each animal in turn to pick its cash up
+                        for _, animal in ipairs(animals) do
+                            if not env.ZOCollect then break end
+
+                            local pos = pivotOf(animal)
+
+                            if pos then
+                                holdAt(pos, COLLECT_HOLD)
+                                interact(animal)
+                            end
+                        end
+
+                        task.wait(COLLECT_DELAY)
+                    end
+                end
+            end
+        end)
+    end)
+
+    ----------------------------------------------------------------
+    -- auto rebirth
+    ----------------------------------------------------------------
+
+    elements:Toggle("Auto Rebirth", section, setdata.rebirth, function(v)
+        env.ZORebirth = v
+        env.setconfig("rebirth", v)
+        if not v then return end
+
+        task.spawn(function()
+            local warned = false
+
+            while env.ZORebirth do
+                local ev = remote("Rebirth")
+
+                if ev then
+                    warned = false
+
+                    pcall(function()
+                        if ev:IsA("RemoteFunction") then
+                            ev:InvokeServer()
+                        else
+                            ev:FireServer()
+                        end
+                    end)
+                elseif not warned then
+                    warn("[BrainrotPolice] TypedRemote.Rebirth not found")
+                    warned = true
+                end
+
+                task.wait(1)
             end
         end)
     end)
