@@ -79,7 +79,8 @@ env.BrainrotPolice.globals = {
     "BPFly", "BPInfJump", "BPNoclip", "BPAntiAFK", "AutoPrestige", "AutoClickAttack",
     "DBCollect", "DBUpgrade", "DBRebirth", "SBPump", "SBUpgrade", "SBLaunch", "SBFuel", "MNLock", "MNMerge", "SSWin", "SSRebirth", "KEWin1", "KEWin2", "KEDestroy", "KECoins", "KEBuy", "KSWalk", "KSBuy", "KSWin", "KSDestroy", "SWSell", "SWRebirth", "SWCollect", "WMRebirth", "WMPrestige", "WMPlaytime", "BBTrajectory", "BBHighlight", "MMCoins", "MMCoinEsp", "BFFarm", "BFSpy", "JHJump", "JHRebirth", "MPTrain", "MPWin", "MPRebirth", "MPDumbbell", "MERebirth", "MEWin", "FBGuards", "FBFarm", "FBFall", "FBRebirth", "FBSpeed", "FBSlots", "STFarm", "BRFarm", "BSFarm", "BSStorage", "BSDamage", "BSRebirth", "BSUpgrade", "BSCollect", "MGFarm", "MGSell", "MGStrength", "MGRebirth", "MGUpgrade", "ZOBuy", "ZOSteal", "ZOCollect", "ZORebirth", "PSFarm", "PSHatch", "PSRaid", "PSOrbs", "PSClaim", "PSRebirth", "PSPets", "GGCollect", "GGSell", "GGSellFull", "GGBuy", "GGPlant", "GGPets", "GGDrops", "GGEvent",
     "WDPScan", "WDPCollect", "WDPHighlight", "WDPCars", "WDPTag", "WDPLog",
-    "NIHDaily", "NIHGroup", "NIHPull", "NIHGems", "NIHSpecial", "NIHDrop", "NIHLog", "MMMyRole"
+    "NIHDaily", "NIHGroup", "NIHPull", "NIHGems", "NIHSpecial", "NIHDrop", "NIHLog",
+    "PKPress", "PKCollect", "PKRebirth", "PKClaim", "PKSpin", "PKLog", "MMMyRole"
 }
 
 function env.BrainrotPolice.unload()
