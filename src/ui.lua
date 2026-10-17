@@ -385,165 +385,124 @@ end
 
 ----------------------------------------------------------------
 -- tools tab
+--
+-- The actual work lives in src/dumper.lua, this is only the ui around it:
+-- one detail dropdown, one module toggle, one button.
 ----------------------------------------------------------------
 
--- Walks a container and writes a readable tree. Depth is capped so a huge
--- workspace cannot produce a hundred thousand lines.
-local function dumpTree(add, root, maxDepth, maxPerLevel)
-    local function walk(inst, depth, prefix)
-        if depth > maxDepth then return end
+local function loadDumper()
+    local ok, mod = pcall(function()
+        return loadstring(getgenv().gitfetch(getgitpath("src").."dumper.lua"))()
+    end)
 
-        local kids = inst:GetChildren()
-        local shown = math.min(#kids, maxPerLevel)
+    if ok and type(mod) == "table" and mod.run then return mod end
+    return nil
+end
 
-        for i = 1, shown do
-            local c = kids[i]
-            add(prefix .. c.ClassName .. " | " .. c.Name)
+local dumper = loadDumper()
 
-            if depth < maxDepth and #c:GetChildren() > 0 then
-                walk(c, depth + 1, prefix .. "    ")
-            end
-        end
-
-        if #kids > shown then
-            add(prefix .. "... " .. (#kids - shown) .. " more")
-        end
-    end
-
-    walk(root, 1, "")
+if not dumper then
+    print("[BrainrotPolice] dumper.lua did not load, press Dump Game to retry")
 end
 
 elements:Label("Dump", Sections.Tools.Container)
 
-local dumpDepth = 1
-local dumpTarget = "Everything"
+local dumpDetail = "Standard"
+local dumpModules = false
 
-elements:Dropdown("Target", Sections.Tools.Container, {
-    "Everything", "workspace", "ReplicatedStorage", "Remotes",
-    "Player", "Character",
-}, dumpTarget, function(v)
-    dumpTarget = v
+elements:Dropdown("Detail", Sections.Tools.Container, { "Standard", "Deep", "Huge" }, dumpDetail, function(v)
+    dumpDetail = v
 end)
 
-elements:Dropdown("Depth", Sections.Tools.Container, { "1", "2", "3", "4" }, "1", function(v)
-    dumpDepth = tonumber(v) or 1
+elements:Toggle("Require module tables (slower)", Sections.Tools.Container, false, function(v)
+    dumpModules = v
 end)
 
-elements:Button("Dump Game Structure", Sections.Tools.Container, function()
-    local out = {}
+local function lastDumpPath()
+    return "BrainrotPolice/dump_" .. tostring(game.PlaceId) .. ".txt"
+end
 
-    local function add(...)
-        local parts = {}
-        for _, v in ipairs({ ... }) do
-            parts[#parts + 1] = tostring(v)
-        end
-        out[#out + 1] = table.concat(parts, " ")
+-- prints only the head of a dump, the full text goes to the clipboard and file
+local function printHead(text, limit)
+    local shown = 0
+
+    for line in string.gmatch(text .. "\n", "([^\n]*)\n") do
+        shown = shown + 1
+        if shown > limit then break end
+        print(line)
     end
 
-    local function header(title)
-        add("")
-        add("======== " .. title .. " ========")
+    return shown
+end
+
+elements:Button("Dump Game", Sections.Tools.Container, function()
+    dumper = dumper or loadDumper()
+
+    if not dumper then
+        warn("[BrainrotPolice] dumper.lua could not be loaded, check the connection and try again")
+        return
     end
 
-    local lp = players.LocalPlayer
-    local rs = game:GetService("ReplicatedStorage")
-    local all = dumpTarget == "Everything"
+    local preset = dumper.presets[dumpDetail] or dumper.presets.Standard
 
-    add("PlaceId: " .. tostring(game.PlaceId))
-    add("JobId: " .. tostring(game.JobId))
-    add("Executor: " .. ((getexec and getexec()) or "unknown"))
-    add("Target: " .. dumpTarget .. "  Depth: " .. dumpDepth)
+    local ok, text, info = pcall(dumper.run, {
+        depth = preset.depth,
+        cap = preset.cap,
+        perLevel = preset.perLevel,
+        modules = dumpModules,
+        detail = dumpDetail,
+    })
 
-    if all or dumpTarget == "workspace" then
-        header("workspace")
-        dumpTree(add, workspace, dumpDepth, 300)
+    if not ok then
+        warn("[BrainrotPolice] dump failed: " .. tostring(text))
+        return
     end
 
-    if all or dumpTarget == "ReplicatedStorage" then
-        header("ReplicatedStorage")
-        dumpTree(add, rs, dumpDepth, 300)
+    local saved = pcall(function() writefile(lastDumpPath(), text) end)
+    local copied = pcall(function() setclipboard(text) end)
+
+    print(string.format("[BrainrotPolice] dump: %d lines, %d chars | %d instances | %d remotes | %d prompts | %d values | %d modules%s",
+        info.lines, info.chars, info.instances, info.remotes, info.prompts,
+        info.values, info.modules, info.truncated and " | TRUNCATED" or ""))
+    print("[BrainrotPolice] " .. (copied and "copied to clipboard" or "clipboard unavailable")
+        .. (saved and (", saved to " .. lastDumpPath()) or ", could not save the file"))
+
+    printHead(text, 80)
+    if info.lines > 80 then
+        print("[BrainrotPolice] ... " .. (info.lines - 80) .. " more lines, already copied and saved")
     end
-
-    if all or dumpTarget == "Remotes" then
-        header("remotes")
-
-        local n = 0
-        for _, r in pairs(rs:GetDescendants()) do
-            if r:IsA("RemoteEvent") or r:IsA("RemoteFunction") then
-                n = n + 1
-                if n <= 300 then
-                    add(r.ClassName .. " | " .. r:GetFullName())
-                end
-            end
-        end
-
-        add("total remotes: " .. n)
-    end
-
-    if all or dumpTarget == "Player" then
-        header("leaderstats")
-
-        local ls = lp:FindFirstChild("leaderstats")
-
-        if ls then
-            for _, stat in pairs(ls:GetChildren()) do
-                add(stat.Name .. " = " .. tostring(stat.Value))
-            end
-        else
-            add("no leaderstats")
-        end
-
-        header("player attributes")
-
-        local attrs = lp:GetAttributes()
-
-        if next(attrs) == nil then
-            add("none")
-        else
-            for k, v in pairs(attrs) do
-                add(k .. " = " .. tostring(v))
-            end
-        end
-
-        header("backpack")
-
-        local bp = lp:FindFirstChildOfClass("Backpack")
-
-        if bp then
-            for _, tool in pairs(bp:GetChildren()) do
-                add(tool.ClassName .. " | " .. tool.Name)
-            end
-        else
-            add("no backpack")
-        end
-    end
-
-    if dumpTarget == "Character" then
-        header("character")
-
-        local char = lp.Character
-
-        if char then
-            dumpTree(add, char, math.max(dumpDepth, 2), 200)
-        else
-            add("no character")
-        end
-    end
-
-    local text = table.concat(out, "\n")
-    print(text)
-
-    local path = "BrainrotPolice/dump_" .. tostring(game.PlaceId) .. ".txt"
-    local savedOk = pcall(function() writefile(path, text) end)
-    local copiedOk = pcall(function() setclipboard(text) end)
-
-    print("[BrainrotPolice] dump: " .. #out .. " lines, " .. #text .. " chars"
-        .. (copiedOk and ", copied" or ", clipboard unavailable")
-        .. (savedOk and ", saved to " .. path or ""))
 end)
 
--- Prints whatever the mouse is pointing at, the fastest way to find the
--- path of a button, pad or npc without scrolling a whole dump.
+elements:Button("Print Last Dump (first 300 lines)", Sections.Tools.Container, function()
+    local ok, text = pcall(function() return readfile(lastDumpPath()) end)
+
+    if not ok then
+        warn("[BrainrotPolice] no dump saved yet for this place")
+        return
+    end
+
+    local lineCount = 1
+    for _ in string.gmatch(text, "\n") do lineCount = lineCount + 1 end
+
+    printHead(text, 300)
+    print(string.format("[BrainrotPolice] showed 300 of %d lines, full dump in %s", lineCount, lastDumpPath()))
+end)
+
+elements:Button("Copy Last Dump", Sections.Tools.Container, function()
+    local ok, text = pcall(function() return readfile(lastDumpPath()) end)
+
+    if not ok then
+        warn("[BrainrotPolice] no dump saved yet for this place")
+        return
+    end
+
+    local copied = pcall(function() setclipboard(text) end)
+    print("[BrainrotPolice] " .. (copied and ("copied " .. #text .. " chars") or "clipboard unavailable")
+        .. " from " .. lastDumpPath())
+end)
+
+-- Prints whatever the mouse is pointing at with its attributes, the fastest way
+-- to find the path of a button, pad or npc without scrolling a whole dump.
 elements:Button("Copy Path Under Mouse", Sections.Tools.Container, function()
     local target = lp:GetMouse().Target
 
@@ -561,21 +520,27 @@ elements:Button("Copy Path Under Mouse", Sections.Tools.Container, function()
         print("  model: " .. model:GetFullName())
     end
 
-    pcall(function() setclipboard(path) end)
-end)
+    local ok, attrs = pcall(function() return target:GetAttributes() end)
+    if ok and next(attrs) ~= nil then
+        local keys = {}
+        for k in pairs(attrs) do keys[#keys+1] = k end
+        table.sort(keys)
 
-elements:Button("Copy Last Dump File", Sections.Tools.Container, function()
-    local path = "BrainrotPolice/dump_" .. tostring(game.PlaceId) .. ".txt"
+        local parts = {}
+        for _, k in ipairs(keys) do
+            parts[#parts+1] = k .. "=" .. tostring(attrs[k])
+        end
 
-    local ok, text = pcall(function() return readfile(path) end)
-
-    if not ok then
-        warn("[BrainrotPolice] no dump saved yet for this place")
-        return
+        print("  attrs: " .. table.concat(parts, ", "))
     end
 
-    pcall(function() setclipboard(text) end)
-    print("[BrainrotPolice] copied " .. #text .. " chars from " .. path)
+    local prompt = target:FindFirstChildOfClass("ProximityPrompt")
+    if prompt then
+        print(string.format("  prompt: action=%q object=%q hold=%.2f",
+            tostring(prompt.ActionText), tostring(prompt.ObjectText), tonumber(prompt.HoldDuration) or 0))
+    end
+
+    pcall(function() setclipboard(path .. "\n" .. tostring(target.Position)) end)
 end)
 
 local dec1 = httpservice:JSONDecode(readfile("BrainrotPolice/Config.json"))
