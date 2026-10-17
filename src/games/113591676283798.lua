@@ -625,6 +625,7 @@ return function(section, data)
         local attrKeys = {}
         local attrValues = {}
         local attrOverflow = {}
+        local attrDistinct = {}
         local promptSamples = {}
         local clickSamples = {}
         local attrSamples = {}
@@ -693,11 +694,11 @@ return function(section, data)
                                 if byKey[sv] ~= nil then
                                     byKey[sv] = byKey[sv] + 1
                                 else
-                                    local seenValues = 0
-                                    for _ in pairs(byKey) do seenValues = seenValues + 1 end
+                                    local seenValues = attrDistinct[k] or 0
 
                                     if seenValues < 50 then
                                         byKey[sv] = 1
+                                        attrDistinct[k] = seenValues + 1
                                     else
                                         attrOverflow[k] = true
                                     end
@@ -850,6 +851,7 @@ return function(section, data)
 
         local keyCounts = {}
         local valueSets = {}
+        local valueCounts = {}
         local overflow = {}
         local withAttrs = 0
 
@@ -874,10 +876,11 @@ return function(section, data)
 
                                 local sv = tostring(v)
                                 if set[sv] == nil then
-                                    local seenValues = 0
-                                    for _ in pairs(set) do seenValues = seenValues + 1 end
+                                    local seenValues = valueCounts[k] or 0
+
                                     if seenValues < 50 then
                                         set[sv] = true
+                                        valueCounts[k] = seenValues + 1
                                     else
                                         overflow[k] = true
                                     end
