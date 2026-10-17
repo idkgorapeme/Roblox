@@ -182,38 +182,136 @@ local function sortChildren(kids)
     return kids
 end
 
-local function tree(add, root, maxDepth, perLevel)
+-- children that only differ in identity are grouped, a pile of 488 identical
+-- "Part | Post" becomes one line instead of 488
+local function groupChildren(kids)
+    local order = {}
+    local map = {}
+    local cheap = #kids > 1200
+
+    for _, c in ipairs(kids) do
+        local key
+
+        if cheap then
+            key = c.ClassName .. "|" .. c.Name
+        else
+            key = c.ClassName .. "|" .. c.Name .. "|" .. attrText(c) .. valueText(c)
+        end
+
+        local entry = map[key]
+
+        if not entry then
+            entry = { key = key, inst = c, count = 0 }
+            map[key] = entry
+            order[#order+1] = entry
+        end
+
+        entry.count = entry.count + 1
+    end
+
+    table.sort(order, function(a, b) return a.key < b.key end)
+    return order
+end
+
+local function tree(add, root, maxDepth, perLevel, skip)
     local function walk(inst, depth, prefix)
         if depth > maxDepth then return end
 
-        local kids = sortChildren(inst:GetChildren())
-        local shown = math.min(#kids, perLevel)
+        local kids = inst:GetChildren()
+        local groups = groupChildren(kids)
+        local shown = math.min(#groups, perLevel)
 
         for i = 1, shown do
-            local child = kids[i]
-            add(prefix .. child.ClassName .. " | " .. child.Name
-                .. attrText(child) .. valueText(child) .. promptText(child))
+            local group = groups[i]
+            local child = group.inst
+            local suffix = group.count > 1 and (" x" .. group.count) or ""
 
-            local childCount = #child:GetChildren()
+            if skip and skip[child] then
+                add(prefix .. child.ClassName .. " | " .. child.Name .. suffix .. " (player avatar, skipped)")
+            else
+                add(prefix .. child.ClassName .. " | " .. child.Name .. suffix
+                    .. attrText(child) .. valueText(child) .. promptText(child))
 
-            if childCount > 0 then
-                if depth >= maxDepth then
-                    add(prefix .. "    ... " .. childCount .. " children (depth limit)")
-                elseif childCount > perLevel then
-                    add(prefix .. "    ... " .. childCount .. " children, showing " .. perLevel)
-                    walk(child, depth + 1, prefix .. "    ")
-                else
-                    walk(child, depth + 1, prefix .. "    ")
+                local childCount = #child:GetChildren()
+
+                if childCount > 0 then
+                    if depth >= maxDepth then
+                        add(prefix .. "    ... " .. childCount .. " children (depth limit)")
+                    else
+                        if childCount > perLevel then
+                            add(prefix .. "    ... " .. childCount .. " children, showing " .. perLevel)
+                        end
+                        walk(child, depth + 1, prefix .. "    ")
+                    end
                 end
             end
         end
 
-        if #kids > shown then
-            add(prefix .. "... " .. (#kids - shown) .. " more children")
+        if #groups > shown then
+            add(prefix .. "... " .. (#groups - shown) .. " more entries")
         end
     end
 
     walk(root, 1, "")
+end
+
+----------------------------------------------------------------
+-- player avatars are noise: full r6/r15 rigs with hundreds of
+-- OriginalPosition / AvatarPartScaleType values. They tell us nothing about
+-- the game, so they get one line in the tree and no values at all.
+----------------------------------------------------------------
+
+local AVATAR_VALUE_NAMES = {
+    OriginalPosition = true,
+    OriginalSize = true,
+    OriginalPivot = true,
+    AvatarPartScaleType = true,
+    BodyDepthScale = true,
+    BodyHeightScale = true,
+    BodyWidthScale = true,
+    BodyTypeScale = true,
+    BodyProportionScale = true,
+    HeadScale = true,
+    ScaleDampeningPercent = true,
+    RBXRefinementScale = true,
+}
+
+local function avatarModels()
+    local set = {}
+
+    if localplayer.Character then set[localplayer.Character] = true end
+
+    local ok, list = pcall(function() return players:GetPlayers() end)
+
+    if ok and list then
+        for _, p in ipairs(list) do
+            if p.Character then set[p.Character] = true end
+        end
+    end
+
+    return set
+end
+
+local function inAvatar(inst, avatars)
+    local node = inst
+
+    for _ = 1, 12 do
+        if not node then break end
+        if avatars[node] then return true end
+        node = node.Parent
+    end
+
+    return false
+end
+
+local function isNoiseValue(inst, avatars)
+    if AVATAR_VALUE_NAMES[inst.Name] then return true end
+    if inAvatar(inst, avatars) then return true end
+
+    local parent = inst.Parent
+    if parent and parent.Name == "Animate" and parent:IsA("LocalScript") then return true end
+
+    return false
 end
 
 ----------------------------------------------------------------
@@ -242,7 +340,10 @@ local function containers()
 end
 
 local function scan()
+    local avatars = avatarModels()
+
     local result = {
+        filtered = 0,
         classes = {},
         attrKeys = {},
         attrValues = {},
@@ -308,8 +409,12 @@ local function scan()
                     result.prompts[#result.prompts+1] = inst
                 end
 
-                if inst:IsA("ValueBase") and #result.values < 600 then
-                    result.values[#result.values+1] = inst
+                if inst:IsA("ValueBase") then
+                    if isNoiseValue(inst, avatars) then
+                        result.filtered = result.filtered + 1
+                    elseif #result.values < 600 then
+                        result.values[#result.values+1] = inst
+                    end
                 end
 
                 if inst:IsA("ModuleScript") then
@@ -371,11 +476,19 @@ local function dumpServices(add)
     header(add, "services")
 
     local services = sortChildren(game:GetChildren())
+    local empty = 0
 
     for _, s in ipairs(services) do
         local kids = #s:GetChildren()
-        add(string.format("%s | %s | %d children", s.ClassName, s.Name, kids))
+
+        if kids > 0 then
+            add(string.format("%s | %s | %d children", s.ClassName, s.Name, kids))
+        else
+            empty = empty + 1
+        end
     end
+
+    add("(" .. empty .. " empty services hidden)")
 end
 
 local function dumpWorld(add)
@@ -404,8 +517,8 @@ local function dumpPlayers(add)
     header(add, "players (" .. #list .. ")")
 
     for _, p in ipairs(list) do
-        add(string.format("  %s (%d) | display %s%s", p.Name, p.UserId, p.DisplayName,
-            p == localplayer and " | YOU" or ""))
+        add(string.format("  %s (%s) | display %s%s", tostring(p.Name), tostring(p.UserId),
+            tostring(p.DisplayName), p == localplayer and " | YOU" or ""))
     end
 
     if #list == 0 then add("  none") end
@@ -519,9 +632,9 @@ end
 local function dumpPlayer(add)
     header(add, "player")
 
-    add(string.format("Name: %s | DisplayName: %s | UserId: %d | AccountAge: %d days",
-        localplayer.Name, localplayer.DisplayName, localplayer.UserId,
-        tonumber(localplayer.AccountAge) or 0))
+    add(string.format("Name: %s | DisplayName: %s | UserId: %s | AccountAge: %s days",
+        tostring(localplayer.Name), tostring(localplayer.DisplayName),
+        tostring(localplayer.UserId), tostring(localplayer.AccountAge)))
 
     local membership = safe(function()
         return tostring(localplayer.MembershipType):gsub("Enum.MembershipType.", "")
@@ -587,9 +700,10 @@ local function dumpCharacter(add, depth)
 
     local humanoid = character:FindFirstChildOfClass("Humanoid")
     if humanoid then
-        add(string.format("Humanoid | health %.0f/%.0f | state %s | walkspeed %.1f | jumppower %.1f",
-            humanoid.Health, humanoid.MaxHealth, tostring(humanoid:GetState()),
-            humanoid.WalkSpeed, humanoid.JumpPower))
+        add(string.format("Humanoid | health %s/%s | state %s | walkspeed %s | jumppower %s",
+            tostring(humanoid.Health), tostring(humanoid.MaxHealth),
+            tostring(safe(function() return humanoid:GetState() end, "?")),
+            tostring(humanoid.WalkSpeed), tostring(humanoid.JumpPower)))
     end
 
     add("")
@@ -597,7 +711,9 @@ local function dumpCharacter(add, depth)
     if #character:GetChildren() == 0 then
         add("character has no children")
     else
-        tree(add, character, math.max(depth, 2), 300)
+        -- two levels is the whole rig, deeper only reaches the Animate script
+        -- and its animation strings
+        tree(add, character, 2, 300)
     end
 end
 
@@ -682,16 +798,18 @@ function dumper.run(opts)
         dumpLighting(add)
     end
 
+    local avatars = avatarModels()
+
     header(add, "workspace")
-    tree(add, workspace, depth, perLevel)
+    tree(add, workspace, depth, perLevel, avatars)
 
     header(add, "ReplicatedStorage")
-    tree(add, replicatedstorage, depth, perLevel)
+    tree(add, replicatedstorage, depth, perLevel, avatars)
 
     local first = safe(function() return game:GetService("ReplicatedFirst") end, nil)
     if first and #first:GetChildren() > 0 then
         header(add, "ReplicatedFirst")
-        tree(add, first, depth, perLevel)
+        tree(add, first, depth, perLevel, avatars)
     end
 
     dumpCharacter(add, depth)
@@ -711,6 +829,7 @@ function dumper.run(opts)
     add("remotes: " .. #result.remotes .. " | prompts: " .. #result.prompts
         .. " | values: " .. #result.values .. " | modules: " .. #result.modules
         .. " | scripts: " .. #result.scripts)
+    add("filtered avatar values: " .. result.filtered)
     add("classes: " .. topList(result.classes, 25))
 
     local attrKeys = {}
@@ -741,6 +860,7 @@ function dumper.run(opts)
         values = #result.values,
         modules = #result.modules,
         scripts = #result.scripts,
+        filtered = result.filtered,
         truncated = truncated,
     }
 
