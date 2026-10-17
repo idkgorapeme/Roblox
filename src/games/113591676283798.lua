@@ -23,6 +23,7 @@ return function(section, data)
     local replicatedstorage = game:GetService("ReplicatedStorage")
     local plr = players.LocalPlayer
 
+    env.WDPScan = false
     env.WDPCollect = false
     env.WDPHighlight = false
     env.WDPCars = false
@@ -30,6 +31,8 @@ return function(section, data)
     env.WDPLog = false
 
     local setdata = data[tostring(game.PlaceId)] or {}
+    setdata.scan = setdata.scan or false
+    setdata.scanextra = tonumber(setdata.scanextra) or 0.15
     setdata.collect = setdata.collect or false
     setdata.delay = tonumber(setdata.delay) or 0.25
     setdata.highlight = setdata.highlight or false
@@ -571,6 +574,39 @@ return function(section, data)
         return ok
     end
 
+    ----------------------------------------------------------------
+    -- live server state
+    --
+    -- ParkingGame.Update carries (channel, payload):
+    --   Profile       Cash, Gems, Stats{Radius, Cooldown, ...}, Levels, Scanner
+    --   SearchResult  CashEarned, Radius, Count, LockedCount, Won, Cooldown
+    --   Delta         Valuables, Epoch, Count, Ids
+    --   CarCashDrops  Ids, Epoch
+    --   Drones        player + drone positions (fires ~10x/s, ignored here)
+    ----------------------------------------------------------------
+
+    local srv = {
+        profile = nil,
+        search = nil,
+        delta = nil,
+        drops = nil,
+        wins = 0,
+        lastResultAt = 0,
+    }
+
+    local function fireAction(name, ...)
+        local pg = replicatedstorage:FindFirstChild("ParkingGame")
+        local remote = pg and pg:FindFirstChild("Action")
+        if not remote or not remote:IsA("RemoteEvent") then return false end
+
+        local args = table.pack(...)
+        local ok = pcall(function()
+            remote:FireServer(name, table.unpack(args, 1, args.n))
+        end)
+
+        return ok
+    end
+
     local lastUpdates = {}
 
     local function connectIncoming()
@@ -580,9 +616,35 @@ return function(section, data)
             if remote:IsA("RemoteEvent") or remote:IsA("UnreliableRemoteEvent") then
                 local ok, conn = pcall(function()
                     return remote.OnClientEvent:Connect(function(...)
+                        local channel, payload = ...
+
                         if label:find("Update") then
-                            lastUpdates[#lastUpdates+1] = serialize(table.pack(...), 0, {})
-                            if #lastUpdates > 30 then table.remove(lastUpdates, 1) end
+                            if type(payload) == "table" then
+                                if channel == "Profile" then
+                                    srv.profile = payload
+                                elseif channel == "SearchResult" then
+                                    local before = srv.search
+                                    srv.search = payload
+                                    srv.lastResultAt = os.clock()
+
+                                    if payload.Won and not (before and before.Won) then
+                                        srv.wins = srv.wins + 1
+                                        print(string.format("[BrainrotPolice] WON! win #%d | cash %s | radius %.1f",
+                                            srv.wins, tostring(payload.CashEarned), tonumber(payload.Radius) or 0))
+                                    end
+                                elseif channel == "Delta" then
+                                    srv.delta = payload
+                                elseif channel == "CarCashDrops" then
+                                    srv.drops = payload
+                                end
+                            end
+
+                            -- Drones updates 10 times a second and is useless after
+                            -- the first look, keep the buffer for the other channels
+                            if channel ~= "Drones" then
+                                lastUpdates[#lastUpdates+1] = serialize(table.pack(...), 0, {})
+                                if #lastUpdates > 30 then table.remove(lastUpdates, 1) end
+                            end
                         end
 
                         if not env.WDPLog then return end
@@ -596,6 +658,196 @@ return function(section, data)
             end
         end
     end
+
+    ----------------------------------------------------------------
+    -- auto search
+    --
+    -- Action "Search" checks every car within Radius around the player and
+    -- answers with SearchResult (Count, LockedCount, Won). So the scan simply
+    -- teleports around the lot and fires it, respecting the server cooldown.
+    ----------------------------------------------------------------
+
+    local scanExtra = math.clamp(tonumber(setdata.scanextra) or 0.15, 0, 5)
+    local plan = {}
+    local planIndex = 0
+    local planRadius = 0
+    local lastFireAt = 0
+    local lastSeenWins = 0
+
+    local function radiusNow()
+        if srv.search and tonumber(srv.search.Radius) then return tonumber(srv.search.Radius) end
+        if srv.profile and srv.profile.Stats and tonumber(srv.profile.Stats.Radius) then
+            return tonumber(srv.profile.Stats.Radius)
+        end
+        return 45
+    end
+
+    local function cooldownNow()
+        if srv.search and tonumber(srv.search.Cooldown) then return tonumber(srv.search.Cooldown) end
+        if srv.profile and srv.profile.Stats and tonumber(srv.profile.Stats.Cooldown) then
+            return tonumber(srv.profile.Stats.Cooldown)
+        end
+        return 0.6
+    end
+
+    -- greedy route: from the current spot always take the nearest car that is
+    -- not covered yet, then drop everything inside the search radius
+    local function buildPlan(radius)
+        local root = getRoot()
+        local remaining = {}
+
+        for _, car in ipairs(carList()) do
+            local p = posOf(car)
+            if p then remaining[#remaining+1] = { car = car, pos = p } end
+        end
+
+        local spots = {}
+        local lastPos = root and root.Position or (remaining[1] and remaining[1].pos) or nil
+
+        while #remaining > 0 and #spots < 500 do
+            local pick, pickIndex = nil, nil
+            local bestDist = math.huge
+
+            for i, p in ipairs(remaining) do
+                local d = lastPos and (p.pos - lastPos).Magnitude or 0
+                if d < bestDist then bestDist, pick, pickIndex = d, p, i end
+            end
+
+            if not pick then break end
+
+            spots[#spots+1] = pick.pos
+            lastPos = pick.pos
+
+            local kept = {}
+            for i, p in ipairs(remaining) do
+                if i ~= pickIndex and (p.pos - pick.pos).Magnitude > radius then
+                    kept[#kept+1] = p
+                end
+            end
+            remaining = kept
+        end
+
+        return spots
+    end
+
+    local function sortPlanFromPlayer()
+        local root = getRoot()
+        if not root or #plan == 0 then return end
+
+        local copy = {}
+        for i = 1, #plan do copy[i] = plan[i] end
+
+        -- keep a nearest neighbour order so the first search happens close by
+        local pos = root.Position
+        local out = {}
+
+        while #copy > 0 do
+            local best, bestIndex, bestDist = nil, nil, math.huge
+            for i, p in ipairs(copy) do
+                local d = (p - pos).Magnitude
+                if d < bestDist then bestDist, best, bestIndex = d, p, i end
+            end
+
+            out[#out+1] = best
+            pos = best
+            table.remove(copy, bestIndex)
+        end
+
+        plan = out
+    end
+
+    local function statusText()
+        local profile = srv.profile
+        local search = srv.search
+
+        local parts = {}
+        parts[#parts+1] = "wins " .. srv.wins
+        parts[#parts+1] = string.format("radius %.1f", radiusNow())
+        parts[#parts+1] = string.format("cooldown %.2fs", cooldownNow())
+        parts[#parts+1] = string.format("plan %d/%d", planIndex, #plan)
+
+        if profile then
+            parts[#parts+1] = "cash " .. tostring(profile.Cash)
+            parts[#parts+1] = "gems " .. tostring(profile.Gems)
+            if profile.Stats then
+                parts[#parts+1] = "walk " .. tostring(profile.Stats.WalkSpeed)
+                parts[#parts+1] = "drones " .. tostring(profile.Stats.Drones)
+            end
+        end
+
+        if search then
+            parts[#parts+1] = string.format("last: count %s locked %s cash %s won %s",
+                tostring(search.Count), tostring(search.LockedCount),
+                tostring(search.CashEarned), tostring(search.Won))
+        end
+
+        return table.concat(parts, " | ")
+    end
+
+    local function searchNow()
+        local wait = math.max(0, (cooldownNow() + scanExtra) - (os.clock() - lastFireAt))
+        if wait > 0 then task.wait(wait) end
+
+        fireAction("Search")
+        lastFireAt = os.clock()
+    end
+
+    task.spawn(function()
+        while env.BrainrotPolice == registry do
+            if env.WDPScan then
+                if srv.wins ~= lastSeenWins then
+                    lastSeenWins = srv.wins
+                    print("[BrainrotPolice] win seen, pausing 5s before the next sweep")
+                    plan = {}
+                    planIndex = 0
+                    task.wait(5)
+                end
+
+                local radius = radiusNow()
+
+                if #plan == 0 or math.abs(planRadius - radius) > 0.5 then
+                    plan = buildPlan(radius)
+                    sortPlanFromPlayer()
+                    planIndex = 0
+                    planRadius = radius
+                    print(string.format("[BrainrotPolice] scan plan: %d spots, radius %.1f", #plan, radius))
+                end
+
+                if planIndex >= #plan then
+                    print("[BrainrotPolice] sweep done, rebuilding in 2s")
+                    task.wait(2)
+                    plan = {}
+                else
+                    planIndex = planIndex + 1
+                    local spot = plan[planIndex]
+
+                    tpTo(spot)
+                    task.wait(0.12)
+
+                    local before = srv.lastResultAt
+                    searchNow()
+
+                    local deadline = os.clock() + 2.5
+                    while srv.lastResultAt == before and os.clock() < deadline do
+                        task.wait(0.05)
+                    end
+
+                    -- Count 0 means the server still had the old position,
+                    -- repeat that spot once instead of losing the coverage
+                    if srv.search and tonumber(srv.search.Count) == 0 then
+                        task.wait(0.15)
+                        tpTo(spot)
+                        task.wait(0.15)
+                        searchNow()
+                    end
+
+                    task.wait(0.05)
+                end
+            else
+                task.wait(0.2)
+            end
+        end
+    end)
 
     task.spawn(function()
         while true do
@@ -1021,6 +1273,68 @@ return function(section, data)
     end)
 
     ----------------------------------------------------------------
+    elements:Label("Auto Scan (Action: Search)", section)
+
+    elements:Toggle("Auto Scan", section, setdata.scan, function(v)
+        env.WDPScan = v
+        setdata.scan = v
+        env.setconfig("scan", v)
+
+        if v then
+            print("[BrainrotPolice] auto scan on | " .. statusText())
+        else
+            print("[BrainrotPolice] auto scan off")
+        end
+    end)
+
+    elements:Textbox("Extra delay after cooldown (s)", section, tostring(scanExtra), function(v)
+        local n = tonumber(v)
+        if not n then return end
+
+        scanExtra = math.clamp(n, 0, 5)
+        setdata.scanextra = scanExtra
+        env.setconfig("scanextra", scanExtra)
+    end)
+
+    elements:Button("Scan Once Now", section, function()
+        local before = srv.lastResultAt
+        searchNow()
+
+        local deadline = os.clock() + 3
+        while srv.lastResultAt == before and os.clock() < deadline do
+            task.wait(0.05)
+        end
+
+        print("[BrainrotPolice] scan: " .. statusText())
+    end)
+
+    elements:Button("Rebuild Scan Plan", section, function()
+        local radius = radiusNow()
+        plan = buildPlan(radius)
+        sortPlanFromPlayer()
+        planIndex = 0
+        planRadius = radius
+        print(string.format("[BrainrotPolice] plan rebuilt: %d spots for radius %.1f", #plan, radius))
+    end)
+
+    elements:Button("Show Scan Status", section, function()
+        print("[BrainrotPolice] " .. statusText())
+    end)
+
+    elements:Label("Manual Action", section)
+
+    local actionName = "Search"
+
+    elements:Textbox("Action name", section, actionName, function(v)
+        if v ~= "" then actionName = v end
+    end)
+
+    elements:Button("Fire Action", section, function()
+        local ok = fireAction(actionName)
+        print("[BrainrotPolice] " .. (ok and ("fired Action: " .. actionName) or "could not fire the Action remote"))
+    end)
+
+    ----------------------------------------------------------------
     elements:Label("Collect (Valuables + Gem Drops)", section)
 
     elements:Toggle("Auto Collect", section, setdata.collect, function(v)
@@ -1115,6 +1429,8 @@ return function(section, data)
     end)
 
     elements:Button("Show Last Update Payloads", section, function()
+        print("[BrainrotPolice] status: " .. statusText())
+
         if #lastUpdates == 0 then
             print("[BrainrotPolice] no Update payloads received yet")
             return
