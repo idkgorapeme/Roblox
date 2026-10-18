@@ -142,8 +142,8 @@ local function makeSink(cap)
     local count = 0
     local truncated = false
 
-    local function add(text)
-        if count >= cap then
+    local function add(text, force)
+        if not force and count >= cap then
             truncated = true
             return false
         end
@@ -160,9 +160,9 @@ local function makeSink(cap)
     return add, out, stats
 end
 
-local function header(add, title)
-    add("")
-    add("======== " .. title .. " ========")
+local function header(add, title, force)
+    add("", force)
+    add("======== " .. title .. " ========", force)
 end
 
 ----------------------------------------------------------------
@@ -213,11 +213,118 @@ local function groupChildren(kids)
     return order
 end
 
+----------------------------------------------------------------
+-- player avatars and NPC humanoid rigs are noise: full r6/r15 rigs with
+-- hundreds of OriginalPosition / AvatarPartScaleType / Animate values.
+-- Player avatars get one line; NPC humanoid models keep their model line +
+-- attributes and any non-rig gameplay children (carried items, prompts, etc.).
+----------------------------------------------------------------
+
+local AVATAR_VALUE_NAMES = {
+    OriginalPosition = true,
+    OriginalSize = true,
+    OriginalPivot = true,
+    AvatarPartScaleType = true,
+    BodyDepthScale = true,
+    BodyHeightScale = true,
+    BodyWidthScale = true,
+    BodyTypeScale = true,
+    BodyProportionScale = true,
+    HeadScale = true,
+    ScaleDampeningPercent = true,
+    RBXRefinementScale = true,
+}
+
+local RIG_PART_NAMES = {
+    Head = true,
+    HumanoidRootPart = true,
+    Torso = true,
+    UpperTorso = true,
+    LowerTorso = true,
+    ["Left Arm"] = true,
+    ["Right Arm"] = true,
+    ["Left Leg"] = true,
+    ["Right Leg"] = true,
+    LeftFoot = true,
+    LeftHand = true,
+    LeftLowerArm = true,
+    LeftLowerLeg = true,
+    LeftUpperArm = true,
+    LeftUpperLeg = true,
+    RightFoot = true,
+    RightHand = true,
+    RightLowerArm = true,
+    RightLowerLeg = true,
+    RightUpperArm = true,
+    RightUpperLeg = true,
+}
+
+local RIG_CHILD_CLASSES = {
+    Accessory = true,
+    BodyColors = true,
+    Shirt = true,
+    Pants = true,
+    ShirtGraphic = true,
+    CharacterMesh = true,
+    Humanoid = true,
+    HumanoidDescription = true,
+}
+
+local function hasInteractiveDescendant(inst)
+    local ok, list = pcall(function() return inst:GetDescendants() end)
+    if not ok or not list then return false end
+
+    for _, d in ipairs(list) do
+        if isInteractive(d) then return true end
+    end
+
+    return false
+end
+
+local function isRigChild(child)
+    if RIG_CHILD_CLASSES[child.ClassName] then return true end
+
+    if (child:IsA("LocalScript") or child:IsA("Script"))
+        and (child.Name == "Animate" or child.Name == "Health") then
+        return true
+    end
+
+    if child:IsA("BasePart") and RIG_PART_NAMES[child.Name] then
+        if not hasInteractiveDescendant(child) then
+            return true
+        end
+    end
+
+    if child:IsA("BillboardGui") and (child.Name == "_Label" or child.Name == "NameTag") then
+        return true
+    end
+
+    return false
+end
+
+local function visibleChildren(inst)
+    local kids = inst:GetChildren()
+
+    if inst ~= localplayer.Character
+        and inst:IsA("Model")
+        and safe(function() return inst:FindFirstChildOfClass("Humanoid") end, nil) ~= nil then
+        local keep = {}
+        for _, c in ipairs(kids) do
+            if not isRigChild(c) then
+                keep[#keep+1] = c
+            end
+        end
+        return keep
+    end
+
+    return kids
+end
+
 local function tree(add, root, maxDepth, perLevel, skip)
     local function walk(inst, depth, prefix)
         if depth > maxDepth then return end
 
-        local kids = inst:GetChildren()
+        local kids = visibleChildren(inst)
         local groups = groupChildren(kids)
         local shown = math.min(#groups, perLevel)
 
@@ -232,7 +339,8 @@ local function tree(add, root, maxDepth, perLevel, skip)
                 add(prefix .. child.ClassName .. " | " .. child.Name .. suffix
                     .. attrText(child) .. valueText(child) .. promptText(child))
 
-                local childCount = #child:GetChildren()
+                local nextKids = visibleChildren(child)
+                local childCount = #nextKids
 
                 if childCount > 0 then
                     if depth >= maxDepth then
@@ -254,27 +362,6 @@ local function tree(add, root, maxDepth, perLevel, skip)
 
     walk(root, 1, "")
 end
-
-----------------------------------------------------------------
--- player avatars are noise: full r6/r15 rigs with hundreds of
--- OriginalPosition / AvatarPartScaleType values. They tell us nothing about
--- the game, so they get one line in the tree and no values at all.
-----------------------------------------------------------------
-
-local AVATAR_VALUE_NAMES = {
-    OriginalPosition = true,
-    OriginalSize = true,
-    OriginalPivot = true,
-    AvatarPartScaleType = true,
-    BodyDepthScale = true,
-    BodyHeightScale = true,
-    BodyWidthScale = true,
-    BodyTypeScale = true,
-    BodyProportionScale = true,
-    HeadScale = true,
-    ScaleDampeningPercent = true,
-    RBXRefinementScale = true,
-}
 
 local function avatarModels()
     local set = {}
@@ -800,8 +887,8 @@ function dumper.run(opts)
 
     local avatars = avatarModels()
 
-    header(add, "workspace")
-    tree(add, workspace, depth, perLevel, avatars)
+    dumpRemotes(add, result)
+    dumpPrompts(add, result)
 
     header(add, "ReplicatedStorage")
     tree(add, replicatedstorage, depth, perLevel, avatars)
@@ -812,25 +899,27 @@ function dumper.run(opts)
         tree(add, first, depth, perLevel, avatars)
     end
 
-    dumpCharacter(add, depth)
-    dumpRemotes(add, result)
-    dumpPrompts(add, result)
     dumpValues(add, result)
     dumpAttributes(add, result)
-    dumpScripts(add, result)
     dumpModulePaths(add, result)
 
     if opts.modules then
         dumpModuleTables(add, tonumber(opts.moduleLimit) or 120)
     end
 
-    header(add, "summary")
-    add("instances scanned: " .. result.instances .. (result.cut and " (scan stopped early)" or ""))
+    dumpScripts(add, result)
+    dumpCharacter(add, depth)
+
+    header(add, "workspace")
+    tree(add, workspace, depth, perLevel, avatars)
+
+    header(add, "summary", true)
+    add("instances scanned: " .. result.instances .. (result.cut and " (scan stopped early)" or ""), true)
     add("remotes: " .. #result.remotes .. " | prompts: " .. #result.prompts
         .. " | values: " .. #result.values .. " | modules: " .. #result.modules
-        .. " | scripts: " .. #result.scripts)
-    add("filtered avatar values: " .. result.filtered)
-    add("classes: " .. topList(result.classes, 25))
+        .. " | scripts: " .. #result.scripts, true)
+    add("filtered avatar values: " .. result.filtered, true)
+    add("classes: " .. topList(result.classes, 25), true)
 
     local attrKeys = {}
     for k, v in pairs(result.attrKeys) do attrKeys[#attrKeys+1] = { k = k, v = v } end
@@ -844,10 +933,10 @@ function dumper.run(opts)
         keys[#keys+1] = tostring(attrKeys[i].k) .. " x" .. tostring(attrKeys[i].v)
     end
 
-    add("attribute keys: " .. (table.concat(keys, ", ")))
+    add("attribute keys: " .. (table.concat(keys, ", ")), true)
 
     local truncated, lines = stats()
-    add("lines: " .. lines .. " / " .. cap .. (truncated and " (TRUNCATED, raise Detail)" or ""))
+    add("lines: " .. lines .. " / " .. cap .. (truncated and " (TRUNCATED, raise Detail)" or ""), true)
 
     local text = table.concat(out, "\n")
 

@@ -81,7 +81,8 @@ env.BrainrotPolice.globals = {
     "WDPScan", "WDPCollect", "WDPHighlight", "WDPCars", "WDPTag", "WDPLog",
     "NIHDaily", "NIHGroup", "NIHPull", "NIHGems", "NIHSpecial", "NIHDrop", "NIHLog",
     "PKPress", "PKCollect", "PKRebirth", "PKClaim", "PKSpin", "PKLog",
-    "SDSit", "SDClaim", "SDLog", "MMMyRole"
+    "SDSit", "SDClaim", "SDLog", "MMMyRole",
+    "MDOrder", "MDAccept", "MDBuy", "MDCampaign", "MDTrain", "MDPrompts", "MDClaim", "MDLog"
 }
 
 function env.BrainrotPolice.unload()
